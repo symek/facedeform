@@ -5,6 +5,7 @@
 #define __SOP_RBFDeform_h__
 
 #include <SOP/SOP_Node.h>
+#include "interpolation.h"
 
 namespace RBFDeform {
 /// Run a sin() wave through geometry by deforming points
@@ -41,6 +42,52 @@ private:
     /// by the method "cookInputGroups".
     const GA_PointGroup *myGroup;
 };
+
+class op_RBFDeform {
+public:
+    op_RBFDeform(const GA_RWAttributeRef &p; const alglib::rbfmodel &model)
+        : myP(p), myModel(model) {}
+            // Take a SplittableRange (not a GA_Range)
+    void    operator()(const GA_SplittableRange &r) const
+            {
+                GA_RWPageHandleV3 p_ph(myP.getAttribute());
+                // Execute storage:
+                alglib::real_1d_array coord;
+                alglib::real_1d_array result;
+                coord.setlength(3);
+                result.setlength(3);
+                // Iterate over pages in the range
+                for (GA_PageIterator pit = r.beginPages(); !pit.atEnd(); ++pit)
+                {
+                    GA_Offset start, end;
+                    // iterate over the elements in the page.
+                    for (GA_Iterator it(pit.begin()); it.blockAdvance(start, end); )
+                    {
+                        // Perform any per-page setup required, then
+                        p_ph.setPage(start);
+                        for (GA_Offset i = start; i < end; ++i)
+                        {
+                            UT_Vector3      pos = p_ph.get(i);
+                            // N.normalize();
+                            // v_ph.set(i, N);
+                        }
+                    }
+                }
+            }
+    private:
+        const GA_RWAttributeRef myP;
+        const alglib::rbfmodel myModel;
+};
+void
+rbfDeform(const GA_Range &range, const GA_RWAttributeRef &p, const alglib::rbfmodel &model)
+{
+    // Create a GA_SplittableRange from the original range
+    UTparallelFor(GA_SplittableRange(range), op_RBFDeform(p, model));
+}
+
+
+
+
 } // End HDK_Sample namespace
 
 #endif
