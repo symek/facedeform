@@ -162,6 +162,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         return error();
 
     // Build model:
+    std::string str_model;
     alglib::rbfmodel model;
     alglib::rbfreport report;
     alglib::rbfcreate(3, 3, model);
@@ -184,6 +185,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
 
     // Finally build model:
     alglib::rbfbuildmodel(model, report);
+    alglib::rbfserialize(model, str_model);
 
     // Debug:
     const char *info;
@@ -194,7 +196,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     addMessage(SOP_MESSAGE, info);
 
     // Early quit if model wasn't built properly (singular matrix etc):
-    if (static_cast<int>(report.terminationtype) == 0)
+    if (static_cast<int>(report.terminationtype) != 1)
         return error();
 
     // Execute storage:
@@ -209,17 +211,20 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     if (cookInputGroups(context) >= UT_ERROR_ABORT)
         return error();
 
+    // Try in parallel:
+    const GA_Range range(gdp->getPointRange());
+    rbfDeformThreaded(range, str_model, gdp);
 
     // Execute model
-    GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
-    {
-        UT_Vector3 pos = gdp->getPos3(ptoff);
-        const double dp[3] = {pos.x(), pos.y(), pos.z()};
-        coord.setcontent(3, dp);
-        alglib::rbfcalc(model, coord, result);
-        const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
-        gdp->setPos3(ptoff, pos+delta);
-    }
+    // GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
+    // {
+    //     UT_Vector3 pos = gdp->getPos3(ptoff);
+    //     const double dp[3] = {pos.x(), pos.y(), pos.z()};
+    //     coord.setcontent(3, dp);
+    //     alglib::rbfcalc(model, coord, result);
+    //     const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
+    //     gdp->setPos3(ptoff, pos+delta);
+    // }
 
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.

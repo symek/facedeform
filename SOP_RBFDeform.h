@@ -4,12 +4,19 @@
 #ifndef __SOP_RBFDeform_h__
 #define __SOP_RBFDeform_h__
 
+
+#include <GA/GA_SplittableRange.h>
+#include <GA/GA_Range.h>
+#include <GA/GA_PageIterator.h>
+#include <GA/GA_PageHandle.h>
+
 #include <SOP/SOP_Node.h>
 #include "interpolation.h"
 
 namespace RBFDeform {
-/// Run a sin() wave through geometry by deforming points
-/// @see @ref HOM/SOP_HOMWave.C, SOP_HOMWave, SOP_CPPWave
+
+// class GA_SplittableRange;
+
 class SOP_RBFDeform : public SOP_Node
 {
 public:
@@ -45,17 +52,22 @@ private:
 
 class op_RBFDeform {
 public:
-    op_RBFDeform(const GA_RWAttributeRef &p; const alglib::rbfmodel &model)
-        : myP(p), myModel(model) {}
+    op_RBFDeform(std::string str_model, GU_Detail *gdp)
+        : mystr_model(str_model),  myGdp(gdp) {};
             // Take a SplittableRange (not a GA_Range)
     void    operator()(const GA_SplittableRange &r) const
             {
-                GA_RWPageHandleV3 p_ph(myP.getAttribute());
+                GA_RWPageHandleV3 handle_P(myGdp->getP());
                 // Execute storage:
                 alglib::real_1d_array coord;
                 alglib::real_1d_array result;
                 coord.setlength(3);
                 result.setlength(3);
+                alglib::rbfmodel model;
+                std::string s;
+                s = mystr_model;
+                alglib::rbfunserialize(s, model);
+                
                 // Iterate over pages in the range
                 for (GA_PageIterator pit = r.beginPages(); !pit.atEnd(); ++pit)
                 {
@@ -64,25 +76,30 @@ public:
                     for (GA_Iterator it(pit.begin()); it.blockAdvance(start, end); )
                     {
                         // Perform any per-page setup required, then
-                        p_ph.setPage(start);
+                        handle_P.setPage(start);
                         for (GA_Offset i = start; i < end; ++i)
                         {
-                            UT_Vector3      pos = p_ph.get(i);
-                            // N.normalize();
-                            // v_ph.set(i, N);
+                            UT_Vector3 pos = handle_P.get(i);
+                            const double dp[3] = {pos.x(), pos.y(), pos.z()};
+                            coord.setcontent(3, dp);
+                            alglib::rbfcalc(model, coord, result);
+                            const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
+                            // const UT_Vector3 delta = UT_Vector3(0,0,0);
+                            handle_P.set(i, pos+delta);
                         }
                     }
                 }
             }
     private:
-        const GA_RWAttributeRef myP;
-        const alglib::rbfmodel myModel;
+            std::string mystr_model;
+            GU_Detail   *myGdp;
 };
 void
-rbfDeform(const GA_Range &range, const GA_RWAttributeRef &p, const alglib::rbfmodel &model)
+rbfDeformThreaded(const GA_Range &range, std::string str_model, GU_Detail *gdp)
 {
     // Create a GA_SplittableRange from the original range
-    UTparallelFor(GA_SplittableRange(range), op_RBFDeform(p, model));
+    GA_SplittableRange split_range = GA_SplittableRange(range);
+    UTparallelFor(split_range, op_RBFDeform(str_model, gdp));
 }
 
 
