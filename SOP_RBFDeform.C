@@ -67,7 +67,7 @@ SOP_RBFDeform::myTemplateList[] = {
         SOP_Node::getGroupSelectButton(GA_GROUP_POINT)),
     PRM_Template(PRM_ORD,   1, &names[0], 0, &modelMenu, 0, 0),
     PRM_Template(PRM_ORD,   1, &names[1], 0, &termMenu, 0, 0),
-    PRM_Template(PRM_FLT_J,	1, &names[2], PRMoneDefaults, 0, &PRMscaleRange),
+    PRM_Template(PRM_FLT_J,	1, &names[2], PRMoneDefaults),
     PRM_Template(PRM_INT_J,	1, &names[3], PRMfourDefaults),
     PRM_Template(PRM_FLT_J,	1, &names[4], PRMpointOneDefaults),
     PRM_Template(),
@@ -118,6 +118,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     if (inputs.lock(context) >= UT_ERROR_ABORT)
         return error();
 
+    fpreal t = context.getTime();
     duplicatePointSource(0, context);
 
     // Get rest and deform geometry:
@@ -130,11 +131,18 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         addError(SOP_ERR_MISMATCH_POINT, "Rest and deform geometry should match.");
         return error();
     }
-    
+    #ifdef DEBUG
+    Timer timer;
+    timer.start();
+    #endif
+
     alglib::real_2d_array rbf_data_model;
     int numpoints = rest_gdp->getNumPoints();
     rbf_data_model.setlength(numpoints, 6);
 
+    #ifdef DEBUG
+    std::cout << "Storage allocated: " << timer.current() << std::endl;
+    #endif
     // Construct model data:
     GA_Offset ptoff;
     {   
@@ -148,9 +156,9 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
                 rbf_data_model[static_cast<int>(ptoff)][i] = data[i]; 
         }
     }
-
-    fpreal t = context.getTime();
-
+    #ifdef DEBUG
+    std::cout << "Data built: " << timer.current() << std::endl;
+    #endif
     // Params:
     UT_String modelName, termName;
     MODEL(modelName);
@@ -187,7 +195,9 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
 
     // Finally build model:
     alglib::rbfbuildmodel(model, report);
-
+    #ifdef DEBUG
+    std::cout << "Model built: " << timer.current() << std::endl;
+    #endif
     // Debug:
     char info_buffer[200];
     sprintf(info_buffer, "Termination type: %d, Iterations: %d", \
@@ -206,7 +216,9 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // Instead we serialize it as send std::string to threads to be recreated there for 
     // further calculation.
     alglib::rbfserialize(model, str_model);
-
+    #ifdef DEBUG
+    std::cout << "Model serialized: " << timer.current() << std::endl;
+    #endif
     // Here we determine which groups we have to work on.  We only
     // handle point groups.
     if (cookInputGroups(context) >= UT_ERROR_ABORT)
@@ -215,10 +227,8 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // Execute mode directly:
     #ifdef NO_RBF_THREADS
     // Execute storage:
-    alglib::real_1d_array coord;
-    alglib::real_1d_array result;
-    coord.setlength(3);
-    result.setlength(3);
+    alglib::real_1d_array coord("[0,0,0]");
+    alglib::real_1d_array result("[0,0,0]");
     // Execute model
     GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
     {
@@ -229,13 +239,14 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
         gdp->setPos3(ptoff, pos+delta);
     }
-
     #else
     // or try it in parallel:
     const GA_Range range(gdp->getPointRange());
     rbfDeformThreaded(range, str_model, gdp);
     #endif
-
+    #ifdef DEBUG
+    std::cout << "Model executed: " << timer.current() << std::endl;
+    #endif
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.
     if (!myGroup || !myGroup->isEmpty())
