@@ -126,7 +126,10 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
 
     // Point count should match:
     if (rest_gdp->getNumPoints() != deform_gdp->getNumPoints())
+    {
+        addError(SOP_ERR_MISMATCH_POINT, "Rest and deform geometry should match.");
         return error();
+    }
     
     alglib::real_2d_array rbf_data_model;
     int numpoints = rest_gdp->getNumPoints();
@@ -152,9 +155,9 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     UT_String modelName, termName;
     MODEL(modelName);
     TERM(termName);
-    float radius = RADIUS(t);
-    int   layers = LAYERS(t);
-    float lambda = LAMBDA(t);
+    float radius = SYSabs(RADIUS(t));
+    int   layers = SYSabs(LAYERS(t));
+    float lambda = SYSabs(LAMBDA(t));
     int modelIndex = SYSatoi(modelName.buffer());
     int termIndex  = SYSatoi(termName.buffer());
 
@@ -169,62 +172,69 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     alglib::rbfsetpoints(model, rbf_data_model);
 
     // Select RBF model:
-    if (modelIndex == 0)
+    if (modelIndex == ALGLIB_MODEL_QNN)
         alglib::rbfsetalgoqnn(model);
-    if (modelIndex == 1)
+    if (modelIndex == ALGLIB_MODEL_ML)
         alglib::rbfsetalgomultilayer(model, radius, layers, lambda);
 
     // Select RBF term:
-    if (termIndex == 0)
+    if (termIndex == ALGLIB_TERM_LINEAR)
         alglib::rbfsetlinterm(model);
-    if (termIndex == 1)
+    if (termIndex == ALGLIB_TERM_CONST)
         alglib::rbfsetconstterm(model);
-    if (termIndex == 2)
+    if (termIndex == ALGLIB_TERM_ZERO)
         alglib::rbfsetzeroterm(model);
-
 
     // Finally build model:
     alglib::rbfbuildmodel(model, report);
-    alglib::rbfserialize(model, str_model);
 
     // Debug:
-    const char *info;
     char info_buffer[200];
-    sprintf(info_buffer, "Termination type: %d, Iterations: %d", static_cast<int>(report.terminationtype),
-    static_cast<int>(report.iterationscount));
-    info = &info_buffer[0];
+    sprintf(info_buffer, "Termination type: %d, Iterations: %d", \
+    static_cast<int>(report.terminationtype), static_cast<int>(report.iterationscount));
+    const char *info = &info_buffer[0];
     addMessage(SOP_MESSAGE, info);
 
     // Early quit if model wasn't built properly (singular matrix etc):
     if (static_cast<int>(report.terminationtype) != 1)
+    {
+        addError(SOP_ERR_NO_DEFORM_EFFECT, "Bad matrix.");
         return error();
+    }
 
-    // Execute storage:
-    alglib::real_1d_array coord;
-    coord.setlength(3);
-    alglib::real_1d_array result;
-    result.setlength(3);
-
+    // We won't use this model directly (unless sigle threaded path was chosen in compile time)
+    // Instead we serialize it as send std::string to threads to be recreated there for 
+    // further calculation.
+    alglib::rbfserialize(model, str_model);
 
     // Here we determine which groups we have to work on.  We only
     // handle point groups.
     if (cookInputGroups(context) >= UT_ERROR_ABORT)
         return error();
 
-    // Try in parallel:
+    // Execute mode directly:
+    #ifdef NO_RBF_THREADS
+    // Execute storage:
+    alglib::real_1d_array coord;
+    alglib::real_1d_array result;
+    coord.setlength(3);
+    result.setlength(3);
+    // Execute model
+    GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
+    {
+        UT_Vector3 pos = gdp->getPos3(ptoff);
+        const double dp[3] = {pos.x(), pos.y(), pos.z()};
+        coord.setcontent(3, dp);
+        alglib::rbfcalc(model, coord, result);
+        const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
+        gdp->setPos3(ptoff, pos+delta);
+    }
+
+    #else
+    // or try it in parallel:
     const GA_Range range(gdp->getPointRange());
     rbfDeformThreaded(range, str_model, gdp);
-
-    // Execute model
-    // GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
-    // {
-    //     UT_Vector3 pos = gdp->getPos3(ptoff);
-    //     const double dp[3] = {pos.x(), pos.y(), pos.z()};
-    //     coord.setcontent(3, dp);
-    //     alglib::rbfcalc(model, coord, result);
-    //     const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
-    //     gdp->setPos3(ptoff, pos+delta);
-    // }
+    #endif
 
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.

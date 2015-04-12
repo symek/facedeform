@@ -13,9 +13,15 @@
 #include <SOP/SOP_Node.h>
 #include "interpolation.h"
 
+#define ALGLIB_MODEL_QNN 0
+#define ALGLIB_MODEL_ML   1
+
+#define ALGLIB_TERM_LINEAR 0
+#define ALGLIB_TERM_CONST  1
+#define ALGLIB_TERM_ZERO   2
+
 namespace RBFDeform {
 
-// class GA_SplittableRange;
 
 class SOP_RBFDeform : public SOP_Node
 {
