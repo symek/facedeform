@@ -73,6 +73,8 @@ private:
     void    getGroups(UT_String &str){ evalString(str, "group", 0, 0); }
     void    MODEL(UT_String &str)    { evalString(str, "model", 0, 0); }
     void    TERM(UT_String &str)     { evalString(str, "term", 0, 0); }
+    fpreal  QCOEF(fpreal t)          { return evalFloat("qcoef", 0, t); }
+    fpreal  ZCOEF(fpreal t)           { return evalFloat("zcoef", 0, t); }
     fpreal  RADIUS(fpreal t)    { return evalFloat("radius", 0, t); }
     int     LAYERS(fpreal t)    { return evalInt("layers", 0, t); }
     fpreal  LAMBDA(fpreal t)    { return evalFloat("lambda", 0, t); }

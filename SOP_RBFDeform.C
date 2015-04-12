@@ -24,8 +24,8 @@ void
 newSopOperator(OP_OperatorTable *table)
 {
     table->addOperator(new OP_Operator(
-        "RBFDeform",
-        "RBF Deform",
+        "rbfDeform",
+        "Radial Basis Deformer",
         SOP_RBFDeform::myConstructor,
         SOP_RBFDeform::myTemplateList,
         3,
@@ -51,11 +51,13 @@ static PRM_Name  termChoices[] =
 
 static PRM_ChoiceList  modelMenu(PRM_CHOICELIST_SINGLE, modelChoices);
 static PRM_ChoiceList  termMenu(PRM_CHOICELIST_SINGLE,  termChoices);
-
+static PRM_Range       radiusRange(PRM_RANGE_PRM, 0, PRM_RANGE_PRM, 10);
 
 static PRM_Name names[] = {
     PRM_Name("model",   "Model"),
     PRM_Name("term",    "RBF Term"),
+    PRM_Name("qcoef",    "Q (Smoothness)"),
+    PRM_Name("zcoef",    "Z (Deviation)"),
     PRM_Name("radius",  "Radius"),
     PRM_Name("layers",  "Layers"),
     PRM_Name("lambda",  "Lambda"),
@@ -67,9 +69,11 @@ SOP_RBFDeform::myTemplateList[] = {
         SOP_Node::getGroupSelectButton(GA_GROUP_POINT)),
     PRM_Template(PRM_ORD,   1, &names[0], 0, &modelMenu, 0, 0),
     PRM_Template(PRM_ORD,   1, &names[1], 0, &termMenu, 0, 0),
-    PRM_Template(PRM_FLT_J,	1, &names[2], PRMoneDefaults),
-    PRM_Template(PRM_INT_J,	1, &names[3], PRMfourDefaults),
-    PRM_Template(PRM_FLT_J,	1, &names[4], PRMpointOneDefaults),
+    PRM_Template(PRM_FLT_J, 1, &names[2], PRMoneDefaults),
+    PRM_Template(PRM_FLT_J, 1, &names[3], PRMfiveDefaults),
+    PRM_Template(PRM_FLT_J,	1, &names[4], PRMoneDefaults, 0, &radiusRange),
+    PRM_Template(PRM_INT_J,	1, &names[5], PRMfourDefaults),
+    PRM_Template(PRM_FLT_J,	1, &names[6], PRMpointOneDefaults),
     PRM_Template(),
 };
 
@@ -163,6 +167,8 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     UT_String modelName, termName;
     MODEL(modelName);
     TERM(termName);
+    float qcoef  = SYSabs(QCOEF(t));
+    float zcoef  = SYSabs(ZCOEF(t));
     float radius = SYSabs(RADIUS(t));
     int   layers = SYSabs(LAYERS(t));
     float lambda = SYSabs(LAMBDA(t));
@@ -181,7 +187,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
 
     // Select RBF model:
     if (modelIndex == ALGLIB_MODEL_QNN)
-        alglib::rbfsetalgoqnn(model);
+        alglib::rbfsetalgoqnn(model, qcoef, zcoef);
     if (modelIndex == ALGLIB_MODEL_ML)
         alglib::rbfsetalgomultilayer(model, radius, layers, lambda);
 
