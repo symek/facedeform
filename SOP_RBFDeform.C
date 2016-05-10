@@ -156,10 +156,22 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
             const UT_Vector3 deformP = deform_gdp->getPos3(ptoff);
             const UT_Vector3 delta   = UT_Vector3(deformP - restP);
             double data[6] = {restP.x(), restP.y(), restP.z(), delta.x(), delta.y(), delta.z()};
-            for (int i=0; i<6; ++i)
-                rbf_data_model[static_cast<int>(ptoff)][i] = data[i]; 
+            // std::cout << "POINT " << static_cast<uint>(ptoff) << ": ";
+            // TODO: Why we have more ptoffs then numpoints in Houdini 15?
+            // Does it have something to do with changes to ptoffs?
+            if (static_cast<uint>(ptoff) < numpoints)
+            {
+                for (int i=0; i<6; ++i)
+                    rbf_data_model[static_cast<uint>(ptoff)][i] = data[i]; 
+            }
+                // std::cout << data[i] << ", ";
+            // std::cout << std::endl;
+            // std::cout << "Numpoints: " << numpoints << std::endl;
         }
     }
+
+    #if 1
+
     #ifdef DEBUG
     std::cout << "Data built: " << timer.current() << std::endl;
     #endif
@@ -167,13 +179,13 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     UT_String modelName, termName;
     MODEL(modelName);
     TERM(termName);
-    float qcoef  = SYSabs(QCOEF(t));
-    float zcoef  = SYSabs(ZCOEF(t));
-    float radius = SYSabs(RADIUS(t));
-    int   layers = SYSabs(LAYERS(t));
-    float lambda = SYSabs(LAMBDA(t));
-    int modelIndex = SYSatoi(modelName.buffer());
-    int termIndex  = SYSatoi(termName.buffer());
+    float qcoef  = SYSmax(0.1,  SYSabs(QCOEF(t)));
+    float zcoef  = SYSmax(0.1,  SYSabs(ZCOEF(t)));
+    float radius = SYSmax(0.01, SYSabs(RADIUS(t)));
+    int   layers = SYSmax(1,    SYSabs(LAYERS(t)));
+    float lambda = SYSmax(0.01, SYSabs(LAMBDA(t)));
+    int modelIndex = atoi(modelName.buffer());
+    int termIndex  = atoi(termName.buffer());
 
     if (error() >= UT_ERROR_ABORT)
         return error();
@@ -255,6 +267,8 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     #endif
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.
+
+    #endif
     if (!myGroup || !myGroup->isEmpty())
         gdp->getP()->bumpDataId();
 
