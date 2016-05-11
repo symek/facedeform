@@ -135,9 +135,10 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         addError(SOP_ERR_MISMATCH_POINT, "Rest and deform geometry should match.");
         return error();
     }
+
     #ifdef DEBUG
-    Timer timer;
-    timer.start();
+        Timer timer;
+        timer.start();
     #endif
 
     alglib::real_2d_array rbf_data_model;
@@ -145,8 +146,9 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     rbf_data_model.setlength(numpoints, 6);
 
     #ifdef DEBUG
-    std::cout << "Storage allocated: " << timer.current() << std::endl;
+        std::cout << "Storage allocated: " << timer.current() << std::endl;
     #endif
+
     // Construct model data:
     GA_Offset ptoff;
     {   
@@ -164,9 +166,6 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
                 for (int i=0; i<6; ++i)
                     rbf_data_model[static_cast<uint>(ptoff)][i] = data[i]; 
             }
-                // std::cout << data[i] << ", ";
-            // std::cout << std::endl;
-            // std::cout << "Numpoints: " << numpoints << std::endl;
         }
     }
 
@@ -175,6 +174,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     #ifdef DEBUG
     std::cout << "Data built: " << timer.current() << std::endl;
     #endif
+
     // Params:
     UT_String modelName, termName;
     MODEL(modelName);
@@ -190,7 +190,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     if (error() >= UT_ERROR_ABORT)
         return error();
 
-    // Build model:
+    // Create model objects and ralated items:
     std::string str_model;
     alglib::rbfmodel model;
     alglib::rbfreport report;
@@ -198,24 +198,38 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     alglib::rbfsetpoints(model, rbf_data_model);
 
     // Select RBF model:
-    if (modelIndex == ALGLIB_MODEL_QNN)
-        alglib::rbfsetalgoqnn(model, qcoef, zcoef);
-    if (modelIndex == ALGLIB_MODEL_ML)
-        alglib::rbfsetalgomultilayer(model, radius, layers, lambda);
+    switch(modelIndex)
+    {
+        case ALGLIB_MODEL_QNN:
+            alglib::rbfsetalgoqnn(model, qcoef, zcoef);
+            break;
+        case ALGLIB_MODEL_ML:
+            alglib::rbfsetalgomultilayer(model, radius, layers, lambda);
+            break;
+    }
 
     // Select RBF term:
-    if (termIndex == ALGLIB_TERM_LINEAR)
-        alglib::rbfsetlinterm(model);
-    if (termIndex == ALGLIB_TERM_CONST)
-        alglib::rbfsetconstterm(model);
-    if (termIndex == ALGLIB_TERM_ZERO)
-        alglib::rbfsetzeroterm(model);
+    switch(termIndex)
+    {
+        case ALGLIB_TERM_LINEAR:
+            alglib::rbfsetlinterm(model);
+            break;
+        case ALGLIB_TERM_CONST:
+            alglib::rbfsetconstterm(model);
+            break;
+        case ALGLIB_TERM_ZERO:
+            alglib::rbfsetzeroterm(model);
+            break;
+    }
+
 
     // Finally build model:
     alglib::rbfbuildmodel(model, report);
+
     #ifdef DEBUG
-    std::cout << "Model built: " << timer.current() << std::endl;
+        std::cout << "Model built: " << timer.current() << std::endl;
     #endif
+
     // Debug:
     char info_buffer[200];
     sprintf(info_buffer, "Termination type: %d, Iterations: %d", \
@@ -234,9 +248,11 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // Instead we serialize it as send std::string to threads to be recreated there for 
     // further calculation.
     alglib::rbfserialize(model, str_model);
+
     #ifdef DEBUG
-    std::cout << "Model serialized: " << timer.current() << std::endl;
+        std::cout << "Model serialized: " << timer.current() << std::endl;
     #endif
+
     // Here we determine which groups we have to work on.  We only
     // handle point groups.
     if (cookInputGroups(context) >= UT_ERROR_ABORT)
@@ -247,6 +263,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // Execute storage:
     alglib::real_1d_array coord("[0,0,0]");
     alglib::real_1d_array result("[0,0,0]");
+
     // Execute model
     GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
     {
@@ -257,18 +274,23 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
         gdp->setPos3(ptoff, pos+delta);
     }
+
     #else
+
     // or try it in parallel:
     const GA_Range range(gdp->getPointRange());
     rbfDeformThreaded(range, str_model, gdp);
+
     #endif
+
     #ifdef DEBUG
     std::cout << "Model executed: " << timer.current() << std::endl;
     #endif
+
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.
-
     #endif
+
     if (!myGroup || !myGroup->isEmpty())
         gdp->getP()->bumpDataId();
 
