@@ -260,6 +260,9 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
 
     // Execute mode directly:
     #ifdef NO_RBF_THREADS
+    #ifdef DEBUG
+    std::cout << "Single thread mode." << std::endl;
+    #endif
     // Execute storage:
     alglib::real_1d_array coord("[0,0,0]");
     alglib::real_1d_array result("[0,0,0]");
@@ -272,6 +275,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         coord.setcontent(3, dp);
         alglib::rbfcalc(model, coord, result);
         const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
+        const float dist       = delta.length();
         gdp->setPos3(ptoff, pos+delta);
     }
 
