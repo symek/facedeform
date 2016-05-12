@@ -1,32 +1,18 @@
 #pragma hint tangentu hidden
 #pragma hint tangentv hidden
 #pragma hint normal   hidden
-#pragma hint combmode toggle
-
 #pragma opmaxinputs 2
+#pragma opmininputs 2
 
 sop
-vslide_sop(string pcmap="op:/`opinputpath(\".\", 0)`";
-                  float radius = 1;
-                  int   maxpoints = 100;
-                  float falloff   = .5;
-                  int   combmode  = 0;
-                  vector tangentu = 0;
-                  vector tangentv = 0;
-                  vector normal   = 0;)
+vslide_sop(
+          vector tangentu = 0;
+          vector tangentv = 0;
+          vector normal   = 0;)
 {
-        int rval;
-        matrix3 a;
+     
         vector a1 = 0;
         vector a2 = 0;
-        vector ptu;
-        vector ptv;
-        vector ptn;
-        vector pP;
-        vector dN;
-        vector d;
-        vector disp;
-        float dist;
         vector tu = tangentu;
         vector tv = tangentv;
         vector tn = N;
@@ -36,21 +22,17 @@ vslide_sop(string pcmap="op:/`opinputpath(\".\", 0)`";
                     tn.x, tn.y, tn.z);
                     
     b = transpose(b)*b;
-
-    rval = import("displace", disp, 1);
-    rval = import("dist", dist, 1);     
-        
-    a1 += b*normalize(tangentu);
-    a2 += b*normalize(tangentv); 
+    a1 = b*normalize(tangentu);
+    a2 = b*normalize(tangentv); 
     a1 = normalize(a1);
     a2 = normalize(a2);
 
-    float da1 = dot(disp, a1);
-    float da2 = dot(disp, a2);
 
-     float _dist = pow(dist, falloff+0.5);
-           _dist = fit(_dist, 0, radius, 1, 0);
-     d = (da1*a1 + da2*a2) * _dist;
-     P += d; 
+
+    vector displace = point(1, "P", ptnum) - P;
+    float da1 = dot(displace, a1);
+    float da2 = dot(displace, a2);
+
+     P += (da1*a1 + da2*a2);
 
 }

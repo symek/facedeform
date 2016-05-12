@@ -87,13 +87,17 @@ private:
 
 class op_RBFDeform {
 public:
-    op_RBFDeform(const std::string &str_model, GU_Detail *gdp)
-        : mystr_model(str_model),  myGdp(gdp) {};
+    op_RBFDeform(const std::string &str_model, const bool tnSpace, GU_Detail *gdp)
+        : mystr_model(str_model),  myGdp(gdp), myTnSpace(tnSpace) {};
             // Take a SplittableRange (not a GA_Range)
     void    operator()(const GA_SplittableRange &r) const
             {
                 alglib::rbfmodel model;
                 GA_RWPageHandleV3 handle_P(myGdp->getP());
+                GA_ROPageHandleV3 handle_U(myGdp, GA_ATTRIB_POINT, "tangentu");
+                GA_ROPageHandleV3 handle_V(myGdp, GA_ATTRIB_POINT, "tangentv");
+                GA_ROPageHandleV3 handle_N(myGdp, GA_ATTRIB_POINT, "N");
+
                 // Execute storage:
                 alglib::real_1d_array coord("[0,0,0]");
                 alglib::real_1d_array result("[0,0,0]");
@@ -108,15 +112,35 @@ public:
                     for (GA_Iterator it(pit.begin()); it.blockAdvance(start, end); )
                     {
                         // Perform any per-page setup required, then
-                        handle_P.setPage(start);
+                        handle_P.setPage(start); handle_U.setPage(start);
+                        handle_V.setPage(start); handle_N.setPage(start);
                         for (GA_Offset i = start; i < end; ++i)
                         {
-                            UT_Vector3 pos = handle_P.get(i);
+                            const UT_Vector3 pos = handle_P.get(i);
                             const double dp[] = {pos.x(), pos.y(), pos.z()};
                             coord.setcontent(3, dp);
                             alglib::rbfcalc(model, coord, result);
-                            const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
-                            handle_P.set(i, pos+delta);
+                            UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
+                            if (myTnSpace)
+                            {
+                                UT_Vector3 u = handle_U.get(i); 
+                                UT_Vector3 v = handle_V.get(i);
+                                UT_Vector3 n = handle_N.get(i);
+                                u.normalize(); v.normalize(); n.normalize();
+                                UT_Matrix3  b(u.x(), u.y(), u.z(),
+                                              v.x(), v.y(), v.z(),
+                                              n.x(), n.y(), n.z());
+
+                                b = b.transposedCopy() * b;
+                                UT_Vector3 a1(u * b); a1.normalize();
+                                UT_Vector3 a2(v * b); a2.normalize();
+                                const float da1 = displace.dot(a1);
+                                const float da2 = displace.dot(a2);
+                                displace        = UT_Vector3(a1 * da1 + a2 * da2);
+        
+                            }
+
+                            handle_P.set(i, pos+displace);
                         }
                     }
                 }
@@ -124,13 +148,15 @@ public:
     private:
             const std::string &mystr_model;
             GU_Detail         *myGdp;
+            const bool        myTnSpace; 
 };
 void
-rbfDeformThreaded(const GA_Range &range, const std::string &str_model, GU_Detail *gdp)
+rbfDeformThreaded(const GA_Range &range, const std::string &str_model, \
+    const bool tnSpace, GU_Detail *gdp)
 {
     // Create a GA_SplittableRange from the original range
     GA_SplittableRange split_range = GA_SplittableRange(range);
-    UTparallelFor(split_range, op_RBFDeform(str_model, gdp));
+    UTparallelFor(split_range, op_RBFDeform(str_model, tnSpace, gdp));
 }
 
 

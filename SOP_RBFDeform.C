@@ -196,13 +196,16 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // Do we have tangents?
     GA_ROHandleV3       tangentu_h(gdp, GA_ATTRIB_POINT, "tangentu");
     GA_ROHandleV3       tangentv_h(gdp, GA_ATTRIB_POINT, "tangentv");
-    GA_RWHandleV3       normals_h(gdp, GA_ATTRIB_POINT,  "N");
+    GA_ROHandleV3       normals_h(gdp, GA_ATTRIB_POINT,  "N");
+    // GA_RWHandleV3       rest_h;
+    // rest_h            = GA_RWHandleV3(gdp->addFloatTuple(GA_ATTRIB_POINT, "rest", 3,
+    //                                 GA_Defaults(0.0)));
 
-    if (tangent == 1 && (!tangentu_h.isValid() || !tangentv_h.isValid()))
-         addWarning(SOP_MESSAGE, "Can't deform in tangent space without tangent[u/v] attribs.");
-
-    if (!normals_h.isValid()) 
-        gdp->normal(normals_h);
+    if (tangent == 1 && (!tangentu_h.isValid() || !tangentv_h.isValid() || !normals_h.isValid()))
+         addWarning(SOP_MESSAGE, "Can't deform in tangent space without tangent[u/v] and N attribs.");
+    // Tangent space:
+    const bool make_tantent_space = tangent && tangentu_h.isValid() && \
+        tangentv_h.isValid() && normals_h.isValid();
 
     // Create model objects and ralated items:
     std::string str_model;
@@ -284,46 +287,39 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // Execute model
     GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
     {
-        UT_Vector3 pos = gdp->getPos3(ptoff);
-        const double dp[3] = {pos.x(), pos.y(), pos.z()};
+        const UT_Vector3 pos = gdp->getPos3(ptoff);
+        const double dp[3]   = {pos.x(), pos.y(), pos.z()};
         coord.setcontent(3, dp);
         alglib::rbfcalc(model, coord, result);
-
         UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
 
-        const float distance = displace.length();
-        if (tangent && tangentu_h.isValid() && \
-            tangentv_h.isValid() && normals_h.isValid())
+        if (make_tantent_space)
         {
+            UT_Vector3 u = tangentu_h.get(ptoff); 
+            UT_Vector3 v = tangentv_h.get(ptoff);
+            UT_Vector3 n = normals_h.get(ptoff);
+            u.normalize(); v.normalize(); n.normalize();
+            UT_Matrix3  b(u.x(), u.y(), u.z(),
+                          v.x(), v.y(), v.z(),
+                          n.x(), n.y(), n.z());
 
-            UT_Vector3 tangentu = tangentu_h.get(ptoff); 
-            UT_Vector3 tangentv = tangentv_h.get(ptoff);
-            UT_Vector3 normal   = normals_h.get(ptoff);
-            tangentu.normalize(); tangentv.normalize(); normal.normalize();
-            UT_Matrix3  tangent_space(tangentu.x(), tangentu.y(), tangentu.z(),
-                                      tangentv.x(), tangentv.y(), tangentv.z(),
-                                      normal.x(), normal.y(), normal.z());
-
-            tangent_space = tangent_space.transposedCopy() * tangent_space;
-
-            UT_Vector3 a1 = tangentu * tangent_space;
-            UT_Vector3 a2 = tangentv * tangent_space;
-            a1 = a1.normalize();
-            a2 = a2.normalize();
-
-            float da1 = displace.dot(a1);
-            float da2 = displace.dot(a2);
-            displace  = (a1 * da1 + a2 * da2);
+            b = b.transposedCopy() * b;
+            UT_Vector3 a1(u * b); a1.normalize();
+            UT_Vector3 a2(v * b); a2.normalize();
+            const float da1 = displace.dot(a1);
+            const float da2 = displace.dot(a2);
+            displace        = UT_Vector3(a1 * da1 + a2 * da2);
         }
 
         gdp->setPos3(ptoff, pos + displace);
     }
 
+
     #else
 
-    // or try it in parallel:
+    // or try it in parallel (no groups support yet)
     const GA_Range range(gdp->getPointRange());
-    rbfDeformThreaded(range, str_model, gdp);
+    rbfDeformThreaded(range, str_model, make_tantent_space, gdp);
 
     #endif
 
