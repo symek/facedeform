@@ -78,6 +78,7 @@ private:
     fpreal  RADIUS(fpreal t)    { return evalFloat("radius", 0, t); }
     int     LAYERS(fpreal t)    { return evalInt("layers", 0, t); }
     fpreal  LAMBDA(fpreal t)    { return evalFloat("lambda", 0, t); }
+    int     TANGENT(fpreal t)   { return evalInt("tangent", 0, t); }
 
     /// This is the group of geometry to be manipulated by this SOP and cooked
     /// by the method "cookInputGroups".

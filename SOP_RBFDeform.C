@@ -1,3 +1,4 @@
+#include <UT/UT_DSOVersion.h>
 #include "SOP_RBFDeform.h"
 
 #include <GU/GU_Detail.h>
@@ -5,7 +6,6 @@
 #include <OP/OP_AutoLockInputs.h>
 #include <OP/OP_OperatorTable.h>
 #include <PRM/PRM_Include.h>
-#include <UT/UT_DSOVersion.h>
 #include <UT/UT_Matrix3.h>
 #include <UT/UT_Matrix4.h>
 #include <SYS/SYS_Math.h>
@@ -56,11 +56,12 @@ static PRM_Range       radiusRange(PRM_RANGE_PRM, 0, PRM_RANGE_PRM, 10);
 static PRM_Name names[] = {
     PRM_Name("model",   "Model"),
     PRM_Name("term",    "RBF Term"),
-    PRM_Name("qcoef",    "Q (Smoothness)"),
-    PRM_Name("zcoef",    "Z (Deviation)"),
+    PRM_Name("qcoef",   "Q (Smoothness)"),
+    PRM_Name("zcoef",   "Z (Deviation)"),
     PRM_Name("radius",  "Radius"),
     PRM_Name("layers",  "Layers"),
     PRM_Name("lambda",  "Lambda"),
+    PRM_Name("tangent", "Tangent space"),
 };
 
 PRM_Template
@@ -74,6 +75,7 @@ SOP_RBFDeform::myTemplateList[] = {
     PRM_Template(PRM_FLT_J,	1, &names[4], PRMoneDefaults, 0, &radiusRange),
     PRM_Template(PRM_INT_J,	1, &names[5], PRMfourDefaults),
     PRM_Template(PRM_FLT_J,	1, &names[6], PRMpointOneDefaults),
+    PRM_Template(PRM_TOGGLE,1, &names[7], PRMzeroDefaults),
     PRM_Template(),
 };
 
@@ -175,7 +177,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     std::cout << "Data built: " << timer.current() << std::endl;
     #endif
 
-    // Params:
+    // Parms:
     UT_String modelName, termName;
     MODEL(modelName);
     TERM(termName);
@@ -184,11 +186,23 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     float radius = SYSmax(0.01, SYSabs(RADIUS(t)));
     int   layers = SYSmax(1,    SYSabs(LAYERS(t)));
     float lambda = SYSmax(0.01, SYSabs(LAMBDA(t)));
+    int   tangent= TANGENT(t);
     int modelIndex = atoi(modelName.buffer());
     int termIndex  = atoi(termName.buffer());
 
     if (error() >= UT_ERROR_ABORT)
         return error();
+
+    // Do we have tangents?
+    GA_ROHandleV3       tangentu_h(gdp, GA_ATTRIB_POINT, "tangentu");
+    GA_ROHandleV3       tangentv_h(gdp, GA_ATTRIB_POINT, "tangentv");
+    GA_RWHandleV3       normals_h(gdp, GA_ATTRIB_POINT,  "N");
+
+    if (tangent == 1 && (!tangentu_h.isValid() || !tangentv_h.isValid()))
+         addWarning(SOP_MESSAGE, "Can't deform in tangent space without tangent[u/v] attribs.");
+
+    if (!normals_h.isValid()) 
+        gdp->normal(normals_h);
 
     // Create model objects and ralated items:
     std::string str_model;
@@ -274,9 +288,35 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         const double dp[3] = {pos.x(), pos.y(), pos.z()};
         coord.setcontent(3, dp);
         alglib::rbfcalc(model, coord, result);
-        const UT_Vector3 delta = UT_Vector3(result[0], result[1],result[2]);
-        const float dist       = delta.length();
-        gdp->setPos3(ptoff, pos+delta);
+
+        UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
+
+        const float distance = displace.length();
+        if (tangent && tangentu_h.isValid() && \
+            tangentv_h.isValid() && normals_h.isValid())
+        {
+
+            UT_Vector3 tangentu = tangentu_h.get(ptoff); 
+            UT_Vector3 tangentv = tangentv_h.get(ptoff);
+            UT_Vector3 normal   = normals_h.get(ptoff);
+            tangentu.normalize(); tangentv.normalize(); normal.normalize();
+            UT_Matrix3  tangent_space(tangentu.x(), tangentu.y(), tangentu.z(),
+                                      tangentv.x(), tangentv.y(), tangentv.z(),
+                                      normal.x(), normal.y(), normal.z());
+
+            tangent_space = tangent_space.transposedCopy() * tangent_space;
+
+            UT_Vector3 a1 = tangentu * tangent_space;
+            UT_Vector3 a2 = tangentv * tangent_space;
+            a1 = a1.normalize();
+            a2 = a2.normalize();
+
+            float da1 = displace.dot(a1);
+            float da2 = displace.dot(a2);
+            displace  = (a1 * da1 + a2 * da2);
+        }
+
+        gdp->setPos3(ptoff, pos + displace);
     }
 
     #else
