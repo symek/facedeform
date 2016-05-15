@@ -160,9 +160,8 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
             const UT_Vector3 deformP = deform_gdp->getPos3(ptoff);
             const UT_Vector3 delta   = UT_Vector3(deformP - restP);
             double data[6] = {restP.x(), restP.y(), restP.z(), delta.x(), delta.y(), delta.z()};
-            // std::cout << "POINT " << static_cast<uint>(ptoff) << ": ";
-            // TODO: Why we have more ptoffs then numpoints in Houdini 15?
-            // Does it have something to do with changes to ptoffs?
+            // FIXME: It seems that for some types of prims (NURBS?) getNumPoints()
+            // is lower than last ptoff, so this crashes Houdini (I should not use ptoff then?)
             if (static_cast<uint>(ptoff) < numpoints)
             {
                 for (int i=0; i<6; ++i)
@@ -174,45 +173,50 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     #if 1
 
     #ifdef DEBUG
-    std::cout << "Data built: " << timer.current() << std::endl;
+        std::cout << "Data built: " << timer.current() << std::endl;
     #endif
 
     // Parms:
     UT_String modelName, termName;
     MODEL(modelName);
     TERM(termName);
-    float qcoef  = SYSmax(0.1,  SYSabs(QCOEF(t)));
-    float zcoef  = SYSmax(0.1,  SYSabs(ZCOEF(t)));
-    float radius = SYSmax(0.01, SYSabs(RADIUS(t)));
-    int   layers = SYSmax(1,    SYSabs(LAYERS(t)));
-    float lambda = SYSmax(0.01, SYSabs(LAMBDA(t)));
-    int   tangent= TANGENT(t);
-    int modelIndex = atoi(modelName.buffer());
-    int termIndex  = atoi(termName.buffer());
+    const float qcoef  = SYSmax(0.1,  QCOEF(t));
+    const float zcoef  = SYSmax(0.1,  ZCOEF(t));
+    const float radius = SYSmax(0.01, RADIUS(t));
+    const int   layers = SYSmax(1,    LAYERS(t));
+    const float lambda = SYSmax(0.01, LAMBDA(t));
+    const int   tangent= TANGENT(t);
+    const int modelIndex = atoi(modelName.buffer());
+    const int termIndex  = atoi(termName.buffer());
 
     if (error() >= UT_ERROR_ABORT)
         return error();
 
     // Do we have tangents?
-    GA_ROHandleV3       tangentu_h(gdp, GA_ATTRIB_POINT, "tangentu");
-    GA_ROHandleV3       tangentv_h(gdp, GA_ATTRIB_POINT, "tangentv");
-    GA_ROHandleV3       normals_h(gdp, GA_ATTRIB_POINT,  "N");
-    // GA_RWHandleV3       rest_h;
-    // rest_h            = GA_RWHandleV3(gdp->addFloatTuple(GA_ATTRIB_POINT, "rest", 3,
-    //                                 GA_Defaults(0.0)));
+    GA_ROHandleV3  tangentu_h(gdp, GA_ATTRIB_POINT, "tangentu");
+    GA_ROHandleV3  tangentv_h(gdp, GA_ATTRIB_POINT, "tangentv");
+    GA_ROHandleV3  normals_h(gdp, GA_ATTRIB_POINT,  "N");
 
     if (tangent == 1 && (!tangentu_h.isValid() || !tangentv_h.isValid() || !normals_h.isValid()))
          addWarning(SOP_MESSAGE, "Can't deform in tangent space without tangent[u/v] and N attribs.");
     // Tangent space:
-    const bool make_tantent_space = tangent && tangentu_h.isValid() && \
+    const bool make_tangent_space = tangent && tangentu_h.isValid() && \
         tangentv_h.isValid() && normals_h.isValid();
 
     // Create model objects and ralated items:
     std::string str_model;
     alglib::rbfmodel model;
     alglib::rbfreport report;
-    alglib::rbfcreate(3, 3, model);
-    alglib::rbfsetpoints(model, rbf_data_model);
+    try 
+    {
+        alglib::rbfcreate(3, 3, model);
+        alglib::rbfsetpoints(model, rbf_data_model);
+    }
+    catch (alglib::ap_error err)
+    {
+        addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't build RBF model with provided points.");
+        return error();
+    }
 
     // Select RBF model:
     switch(modelIndex)
@@ -247,19 +251,17 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         std::cout << "Model built: " << timer.current() << std::endl;
     #endif
 
-    // Debug:
-    char info_buffer[200];
-    sprintf(info_buffer, "Termination type: %d, Iterations: %d", \
-    static_cast<int>(report.terminationtype), static_cast<int>(report.iterationscount));
-    const char *info = &info_buffer[0];
-    addMessage(SOP_MESSAGE, info);
-
     // Early quit if model wasn't built properly (singular matrix etc):
     if (static_cast<int>(report.terminationtype) != 1)
     {
-        addError(SOP_ERR_NO_DEFORM_EFFECT, "Bad matrix.");
+        addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't solve the problem. Bad matrix?");
         return error();
     }
+    // Debug:
+    char info_buffer[200];
+    sprintf(info_buffer, "Termination type: %d, Iterations: %d", \
+        static_cast<int>(report.terminationtype),static_cast<int>(report.iterationscount));
+    addMessage(SOP_MESSAGE, &info_buffer[0]);
 
     // We won't use this model directly (unless sigle threaded path was chosen in compile time)
     // Instead we serialize it as send std::string to threads to be recreated there for 
@@ -278,8 +280,9 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // Execute mode directly:
     #ifdef NO_RBF_THREADS
     #ifdef DEBUG
-    std::cout << "Single thread mode." << std::endl;
+        std::cout << "Single thread mode." << std::endl;
     #endif
+
     // Execute storage:
     alglib::real_1d_array coord("[0,0,0]");
     alglib::real_1d_array result("[0,0,0]");
@@ -293,7 +296,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
         alglib::rbfcalc(model, coord, result);
         UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
 
-        if (make_tantent_space)
+        if (make_tangent_space)
         {
             UT_Vector3 u = tangentu_h.get(ptoff); 
             UT_Vector3 v = tangentv_h.get(ptoff);
@@ -319,7 +322,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
 
     // or try it in parallel (no groups support yet)
     const GA_Range range(gdp->getPointRange());
-    rbfDeformThreaded(range, str_model, make_tantent_space, gdp);
+    rbfDeformThreaded(range, str_model, make_tangent_space, gdp);
 
     #endif
 
