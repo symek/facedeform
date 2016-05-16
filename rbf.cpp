@@ -94,32 +94,27 @@ inline float distance(const float r, const DistanceFunction type, const float ep
 
 inline float interpolant(const GU_Detail *gdp, GEO_PointTree &tree, 
     const UT_VectorD &values, const UT_Vector3 &pos, const DistanceFunction type, 
-    const float epsilon) 
+    const UT_VectorD &epsilons) 
 {
     const int npoints = gdp->getNumPoints();
     UT_VectorD dist(1, npoints); // 1-based index for LU comp;
+    // GEO_PointTree::IdxArrayType  indexList;
+    // UT_FloatArray                groupDist;
 
     for (int i=0; i<npoints; ++i)
     {
         const UT_Vector3 point = gdp->getPos3(GA_Offset(i));
-        dist(i+1) = distance(norm(point, pos), type, epsilon); 
+        // int found = tree.findNearestGroupIdx(point, epsilon*2.0, 2, indexList, groupDist);
+        // std::cout << groupDist(1) << ", ";
+        dist(i+1) = distance(norm(point, pos), type, epsilons(i+1)); 
     }
 
     UT_VectorD sum(dist);
     sum *= values;
     float result = 0.0;
 
-    GEO_PointTree::IdxArrayType  indexList;
-    UT_FloatArray                groupDist;
-    int found = tree.findNearestGroupIdx(pos, epsilon*2.0, npoints, indexList, groupDist);
-    if (found)
-    {
-        for (int i=0; i<found; ++i)
-            result += static_cast<float>(sum(indexList(i)+1));    
-    }
-
-    // for (int i=0; i<npoints; ++i)
-        // result += static_cast<float>(sum(i+1));
+    for (int i=0; i<npoints; ++i)
+        result += static_cast<float>(sum(i+1));
     
     return result;
 }
@@ -234,7 +229,7 @@ int main(int argc, char **argv)
     if (argc >= 2)
         type = DistanceFunction(atoi(argv[1]));
     if (argc >= 3)
-        epsilon_mult = atoi(argv[2]);
+        epsilon_mult = atof(argv[2]);
     
 
 
@@ -261,10 +256,18 @@ int main(int argc, char **argv)
     float epsilon = 0.0f; 
     UT_Matrix M(1, npoints, 1, npoints); // double array
     UT_VectorD v(1, npoints);
+    UT_VectorD nearest(1, npoints);
+    GEO_PointTree kdtree;
+    kdtree.build(samples);
+    GEO_PointTree::IdxArrayType  indexList;
+    UT_FloatArray                groupDist;
+
 
     for(int j=0; j<npoints; ++j)
     {   
         UT_Vector3 b = samples->getPos3(GA_Offset(j));
+        int found    = kdtree.findNearestGroupIdx(b, 20.0, 2, indexList, groupDist);
+        nearest(j+1) = groupDist(1) * epsilon_mult;
         v(j+1)       = static_cast<double>(b.y());
         for(int i=0; i<npoints; ++i)
         {
@@ -281,16 +284,16 @@ int main(int argc, char **argv)
     epsilon /= (npoints*npoints) - npoints; 
     epsilon *= epsilon_mult;
 
-    GEO_PointTree kdtree;
-    kdtree.build(samples);
+
 
 
     for(int j=0; j<npoints; ++j) 
     {   
         for(int i=0; i<npoints; ++i) 
         {
+            // const UT_Vector3 point = samples->getPos3(GA_Offset(i));
             const double m = M.row(j+1)[i+1]; 
-            M.row(j+1)[i+1] = distance(m, type, epsilon);
+            M.row(j+1)[i+1] = distance(m, type, nearest(i+1)) ;
         }
     }
 
@@ -325,7 +328,7 @@ int main(int argc, char **argv)
     GA_FOR_ALL_PTOFF(values, ptoff)
     {
         const UT_Vector3 pos = values->getPos3(ptoff);
-        const float result   = interpolant(samples, kdtree, v, pos, type, epsilon);
+        const float result   = interpolant(samples, kdtree, v, pos, type, nearest);
         UT_Vector3 displace  = UT_Vector3(pos.x(), result, pos.z());
         values->setPos3(ptoff, displace);
     }
