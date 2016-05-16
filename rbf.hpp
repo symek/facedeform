@@ -115,60 +115,65 @@ class RbfDeformModel
 {
 public:
     RbfDeformModel() {};
-    ~RbfDeformModel() {};
+    ~RbfDeformModel() 
+    {
+        // delete P;
+    }
     int build(const GU_Detail &restGeom, const GU_Detail &deformed, 
         const DistanceFunction distance_func)
     {
         points  = &restGeom;
         npoints = restGeom.getNumPoints();
         M       = UT_Matrix(1, npoints, 1, npoints);
-        P       = UT_Permutation(1, npoints);
-        values  = UT_ValArray<UT_VectorD>(0, 2); 
+        P       = UT_SharedPtr<UT_Permutation>\
+        (new UT_Permutation(1, npoints));
+        values  = std::vector<UT_VectorD>();
+        values.resize(3);
         UT_VectorD xs = UT_VectorD(1, npoints);
         UT_VectorD ys = UT_VectorD(1, npoints);
         UT_VectorD zs = UT_VectorD(1, npoints);
-        values(0) = xs; values(1) = ys; values(2) = zs;
+        // values[0] = xs; values[1] = ys; values[2] = zs;
         distances = UT_VectorD(1, npoints);
         func      = distance_func;
 
         for(int j=0; j<npoints; ++j)
         {   
-            const UT_Vector3 b = restGeom.getPos3(GA_Offset(j));
-            const UT_Vector3 c = deformed.getPos3(GA_Offset(j));
-            const UT_Vector3 d(c - b);
-            values(j+1)(0) = static_cast<double>(d.x());
-            values(j+1)(1) = static_cast<double>(d.y());
-            values(j+1)(2) = static_cast<double>(d.z());
+            // const UT_Vector3 b = restGeom.getPos3(GA_Offset(j));
+            // const UT_Vector3 c = deformed.getPos3(GA_Offset(j));
+            // const UT_Vector3 d(c - b);
+            // values[0](j+1) = static_cast<double>(d.x());
+            // values[1](j+1) = static_cast<double>(d.y());
+            // values[2](j+1) = static_cast<double>(d.z());
 
-            for(int i=0; i<npoints; ++i)
-            {
-                const UT_Vector3 a = restGeom.getPos3(GA_Offset(i));
-                const float n      = norm(a, b);
-                M.row(j+1)[i+1]    = static_cast<double>(n); // float to double coversion
-                epsilon           += n;
-            }
+            // for(int i=0; i<npoints; ++i)
+            // {
+            //     const UT_Vector3 a = restGeom.getPos3(GA_Offset(i));
+            //     const float n      = norm(a, b);
+            //     M.row(j+1)[i+1]    = static_cast<double>(n); // float to double coversion
+            //     epsilon           += n;
+            // }
         }
         // Compute epsilon: 
-        epsilon /= (npoints*npoints) - npoints; 
-        // kdtree->build(samples);
+        // epsilon /= (npoints*npoints) - npoints; 
+        // // kdtree->build(samples);
 
-        for(int j=0; j<npoints; ++j) {   
-            for(int i=0; i<npoints; ++i) {
-                const double m = M.row(j+1)[i+1]; 
-                M.row(j+1)[i+1] = distance(m, func, epsilon);
-            }
-        }
+        // for(int j=0; j<npoints; ++j) {   
+        //     for(int i=0; i<npoints; ++i) {
+        //         const double m = M.row(j+1)[i+1]; 
+        //         M.row(j+1)[i+1] = distance(m, func, epsilon);
+        //     }
+        // }
 
-        double determinant_sign = 0;
-        if( solver.LUDecomp(M, P, determinant_sign) != 1 )
-        {
-            // Failed to create a LU-decomposition
-            return 0;
-        }
+        // double determinant_sign = 0;
+        // if( solver.LUDecomp(M, *P, determinant_sign) != 1 )
+        // {
+        //     // Failed to create a LU-decomposition
+        //     return 0;
+        // }
    
-        solver.LUBackSub(M, P, values(0));
-        solver.LUBackSub(M, P, values(1));
-        solver.LUBackSub(M, P, values(2));
+        // solver.LUBackSub(M, *P, values(0));
+        // solver.LUBackSub(M, *P, values(1));
+        // solver.LUBackSub(M, *P, values(2));
 
 
         return 1;
@@ -184,9 +189,9 @@ public:
         UT_VectorD xsum(distances);
         UT_VectorD ysum(distances);
         UT_VectorD zsum(distances);
-        xsum *= values(0); 
-        ysum *= values(1);
-        zsum *= values(2);
+        // xsum *= values(0); 
+        // ysum *= values(1);
+        // zsum *= values(2);
 
        
         for (int i=0; i<npoints; ++i)
@@ -198,12 +203,13 @@ public:
     }
 
 private:
-    UT_ValArray\
+    std::vector\
     <UT_VectorD>    values;
     UT_VectorD      distances;
     UT_MatrixSolver solver;
     UT_Matrix       M;
-    UT_Permutation  P;
+    UT_SharedPtr\
+    <UT_Permutation>P;
     GEO_PointTree   kdtree;
     DistanceFunction func;
     const GU_Detail *points;

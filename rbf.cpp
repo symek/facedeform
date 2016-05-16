@@ -41,6 +41,16 @@ int main(int argc, char **argv)
     RbfDeformModel model;
     model.build(*samples, *samples, type);
 
+     /* Interpolation of target*/
+    // GA_FOR_ALL_PTOFF(values, ptoff)
+    // {
+    //     const UT_Vector3 pos = values->getPos3(ptoff);
+    //           UT_Vector3 result;
+    //     model.interpolate(pos, result);
+    //     // UT_Vector3 displace  = UT_Vector3(pos.x(), result.y(), pos.z());
+    //     // values->setPos3(ptoff, displace);
+    // }
+
     #else
 
 
