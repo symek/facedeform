@@ -15,6 +15,7 @@
 
 #include <time.h>
 
+#define NO_RBF_THREADS
 
 #define ALGLIB_MODEL_QNN 0
 #define ALGLIB_MODEL_ML   1

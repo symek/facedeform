@@ -10,6 +10,8 @@
 #include <UT/UT_Matrix4.h>
 #include <SYS/SYS_Math.h>
 #include <stddef.h>
+#include <GQ/GQ_Detail.h>
+#include <GEO/GEO_PointTree.h>
 
 
 #include "stdafx.h"
@@ -287,42 +289,80 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     alglib::real_1d_array coord("[0,0,0]");
     alglib::real_1d_array result("[0,0,0]");
 
-    // Execute model
-    GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
+    GQ_Detail     gq_detail(gdp);
+    GA_PointGroup affected_group(*gdp);
+    GA_PointGroup point_group(*gdp);
+  
+    GA_RWHandleV3  cd_h(gdp->addDiffuseAttribute(GA_ATTRIB_POINT));
+
+    GEO_PointTree tree;
+    tree.build(gdp);
+  
     {
-        const UT_Vector3 pos = gdp->getPos3(ptoff);
-        const double dp[3]   = {pos.x(), pos.y(), pos.z()};
-        coord.setcontent(3, dp);
-        alglib::rbfcalc(model, coord, result);
-        UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
+        GA_FOR_ALL_PTOFF(rest_gdp, ptoff) 
+        { 
 
-        if (make_tangent_space)
-        {
-            UT_Vector3 u = tangentu_h.get(ptoff); 
-            UT_Vector3 v = tangentv_h.get(ptoff);
-            UT_Vector3 n = normals_h.get(ptoff);
-            u.normalize(); v.normalize(); n.normalize();
-            UT_Matrix3  b(u.x(), u.y(), u.z(),
-                          v.x(), v.y(), v.z(),
-                          n.x(), n.y(), n.z());
-
-            b = b.transposedCopy() * b;
-            UT_Vector3 a1(u * b); a1.normalize();
-            UT_Vector3 a2(v * b); a2.normalize();
-            const float da1 = displace.dot(a1);
-            const float da2 = displace.dot(a2);
-            displace        = UT_Vector3(a1 * da1 + a2 * da2);
+            const UT_Vector3 restP = rest_gdp->getPos3(ptoff);
+            GA_Index idx = tree.findNearestIdx(restP);
+            GA_Offset anchor = gdp->getPointMap().offsetFromIndex(idx);
+            gq_detail.groupEdgePoints(anchor, layers, point_group);
+            affected_group.combine(&point_group);
+            point_group.clear();
         }
 
-        gdp->setPos3(ptoff, pos + displace);
+        UT_Vector3 clr(1,0,0);
+        
+        for (GA_Size i=0; i<affected_group.entries(); ++i) 
+        {
+            GA_Offset targetoff = affected_group.findOffsetAtGroupIndex(i);
+            const UT_Vector3 pos = gdp->getPos3(targetoff);
+            const double dp[3]   = {pos.x(), pos.y(), pos.z()};
+            coord.setcontent(3, dp);
+            alglib::rbfcalc(model, coord, result);
+            UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
+            cd_h.set(targetoff, clr);
+            gdp->setPos3(targetoff, pos + displace);
+        }
+        
+
     }
+
+    // Execute model
+    // GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
+    // {
+    //     const UT_Vector3 pos = gdp->getPos3(ptoff);
+    //     const double dp[3]   = {pos.x(), pos.y(), pos.z()};
+    //     coord.setcontent(3, dp);
+    //     alglib::rbfcalc(model, coord, result);
+    //     UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
+
+    //     if (make_tangent_space)
+    //     {
+    //         UT_Vector3 u = tangentu_h.get(ptoff); 
+    //         UT_Vector3 v = tangentv_h.get(ptoff);
+    //         UT_Vector3 n = normals_h.get(ptoff);
+    //         u.normalize(); v.normalize(); n.normalize();
+    //         UT_Matrix3  b(u.x(), u.y(), u.z(),
+    //                       v.x(), v.y(), v.z(),
+    //                       n.x(), n.y(), n.z());
+
+    //         b = b.transposedCopy() * b;
+    //         UT_Vector3 a1(u * b); a1.normalize();
+    //         UT_Vector3 a2(v * b); a2.normalize();
+    //         const float da1 = displace.dot(a1);
+    //         const float da2 = displace.dot(a2);
+    //         displace        = UT_Vector3(a1 * da1 + a2 * da2);
+    //     }
+
+    //     gdp->setPos3(ptoff, pos + displace);
+    // }
 
 
     #else
 
     // or try it in parallel (no groups support yet)
-    const GA_Range range(gdp->getPointRange());
-    rbfDeformThreaded(range, str_model, make_tangent_space, gdp);
+    // const GA_Range range(gdp->getPointRange());
+    // rbfDeformThreaded(range, str_model, make_tangent_space, gdp);
 
     #endif
 
