@@ -291,37 +291,66 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
 
     GQ_Detail     gq_detail(gdp);
     GA_PointGroup affected_group(*gdp);
-    GA_PointGroup point_group(*gdp);
+    GA_PointGroup partial_group(*gdp);
+
+    // GA_PointGroup::GA_PointGroup(const GU_Detail & gdp);
   
     GA_RWHandleV3  cd_h(gdp->addDiffuseAttribute(GA_ATTRIB_POINT));
 
-    GEO_PointTree tree;
-    tree.build(gdp);
+    GEO_PointTree gdp_pt_tree, rest_gdp_pt_tree;
+    gdp_pt_tree.build(gdp);
+    rest_gdp_pt_tree.build(rest_gdp);
   
     {
-        GA_FOR_ALL_PTOFF(rest_gdp, ptoff) 
-        { 
+        // Poor man geodesic distance
+        GA_FOR_ALL_PTOFF(rest_gdp, ptoff) { 
+            const UT_Vector3 anchor_pt_pos = rest_gdp->getPos3(ptoff);
+            const GA_Index  target_pt_idx  = gdp_pt_tree.findNearestIdx(anchor_pt_pos);
+            const GA_Offset target_pt_off  = gdp->getPointMap().offsetFromIndex(target_pt_idx);
 
-            const UT_Vector3 restP = rest_gdp->getPos3(ptoff);
-            GA_Index idx = tree.findNearestIdx(restP);
-            GA_Offset anchor = gdp->getPointMap().offsetFromIndex(idx);
-            gq_detail.groupEdgePoints(anchor, layers, point_group);
-            affected_group.combine(&point_group);
-            point_group.clear();
+            gq_detail.groupEdgePoints(target_pt_off, layers, partial_group);
+
+            // for (GA_Size i=0; i<partial_group.entries(); ++i) {
+            //     const GA_Offset  partial_pt_off = partial_group.findOffsetAtGroupIndex(i);
+            //     const UT_Vector3 partial_pt_pos = gdp->getPos3(partial_pt_off);
+            //     const UT_Vector3 target_pt_clr  = cd_h->get(partial_pt_off);
+            //     const float anchor_target_dist  = distance3d(partial_pt_pos, anchor_pt_pos);
+            //     if (target_pt_clr.x() == 1.0)
+            //         continue;
+            //     else {
+            //         clr.x() += dist; 
+            //         cd_h.set(partial_pt_off, clr);
+            //     }
+            //     // if (distance3d(pos, restP) < radius)
+            //         // partial_group.setElement(partial_pt_off, false);
+            // }
+
+            affected_group.combine(&partial_group);
+            partial_group.clear();
         }
 
         UT_Vector3 clr(1,0,0);
         
         for (GA_Size i=0; i<affected_group.entries(); ++i) 
         {
-            GA_Offset targetoff = affected_group.findOffsetAtGroupIndex(i);
-            const UT_Vector3 pos = gdp->getPos3(targetoff);
-            const double dp[3]   = {pos.x(), pos.y(), pos.z()};
+            const GA_Offset target_pt_off  = affected_group.findOffsetAtGroupIndex(i);
+            const UT_Vector3 target_pt_pos = gdp->getPos3(target_pt_off);
+            const GA_Index  anchor_pt_idx  = rest_gdp_pt_tree.findNearestIdx(target_pt_pos);
+            const GA_Offset anchor_pt_off  = rest_gdp->getPointMap().offsetFromIndex(anchor_pt_idx);
+            const UT_Vector3 anchor_pt_pos = rest_gdp->getPos3(anchor_pt_off); 
+
+            if (distance3d(target_pt_pos, anchor_pt_pos) > radius)
+                continue;
+
+            const double dp[3]   = {target_pt_pos.x(), 
+                                    target_pt_pos.y(), 
+                                    target_pt_pos.z()};
+
             coord.setcontent(3, dp);
             alglib::rbfcalc(model, coord, result);
             UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
-            cd_h.set(targetoff, clr);
-            gdp->setPos3(targetoff, pos + displace);
+            cd_h.set(target_pt_off, clr);
+            gdp->setPos3(target_pt_off, target_pt_pos + displace);
         }
         
 
