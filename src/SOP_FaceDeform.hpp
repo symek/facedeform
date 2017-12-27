@@ -1,9 +1,4 @@
-
-
-
-#ifndef __SOP_RBFDeform_h__
-#define __SOP_RBFDeform_h__
-
+#pragma once 
 
 #include <GA/GA_SplittableRange.h>
 #include <GA/GA_Range.h>
@@ -24,37 +19,14 @@
 #define ALGLIB_TERM_CONST  1
 #define ALGLIB_TERM_ZERO   2
 
-namespace RBFDeform {
-
-class Timer 
-{
-    private:
-        double begTime;
-    public:
-        void start()
-        {
-            begTime = clock();
-        }
-
-        double current() 
-        {
-        //int threads = UT_Thread::getNumProcessors();
-            return (difftime(clock(), begTime) / CLOCKS_PER_SEC);// / (double) threads;
-        }
-
-        bool isTimeout(double seconds)
-        {
-            return seconds >= current();
-        }
-};
+namespace facedeform {
 
 
-
-class SOP_RBFDeform : public SOP_Node
+class SOP_FaceDeform : public SOP_Node
 {
 public:
-         SOP_RBFDeform(OP_Network *net, const char *name, OP_Operator *op);
-    virtual ~SOP_RBFDeform();
+         SOP_FaceDeform(OP_Network *net, const char *name, OP_Operator *op);
+    virtual ~SOP_FaceDeform();
 
     static PRM_Template      myTemplateList[];
     static OP_Node      *myConstructor(OP_Network*, const char *,

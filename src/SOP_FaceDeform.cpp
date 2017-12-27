@@ -1,5 +1,5 @@
 #include <UT/UT_DSOVersion.h>
-#include "SOP_RBFDeform.h"
+#include "SOP_FaceDeform.hpp"
 
 #include <GU/GU_Detail.h>
 #include <OP/OP_Operator.h>
@@ -20,16 +20,16 @@
 #include <math.h>
 
 
-using namespace RBFDeform;
+using namespace facedeform;
 
 void
 newSopOperator(OP_OperatorTable *table)
 {
     table->addOperator(new OP_Operator(
-        "rbfDeform",
-        "Radial Basis Deformer",
-        SOP_RBFDeform::myConstructor,
-        SOP_RBFDeform::myTemplateList,
+        "facedeform",
+        "Face Deformer",
+        SOP_FaceDeform::myConstructor,
+        SOP_FaceDeform::myTemplateList,
         3,
         3,
         0));
@@ -68,7 +68,7 @@ static PRM_Name names[] = {
 };
 
 PRM_Template
-SOP_RBFDeform::myTemplateList[] = {
+SOP_FaceDeform::myTemplateList[] = {
     PRM_Template(PRM_STRING,    1, &PRMgroupName, 0, &SOP_Node::pointGroupMenu, 0, 0, \
         SOP_Node::getGroupSelectButton(GA_GROUP_POINT)),
     PRM_Template(PRM_ORD,   1, &names[0], 0, &modelMenu, 0, 0),
@@ -85,22 +85,22 @@ SOP_RBFDeform::myTemplateList[] = {
 
 
 OP_Node *
-SOP_RBFDeform::myConstructor(OP_Network *net, const char *name, OP_Operator *op)
+SOP_FaceDeform::myConstructor(OP_Network *net, const char *name, OP_Operator *op)
 {
-    return new SOP_RBFDeform(net, name, op);
+    return new SOP_FaceDeform(net, name, op);
 }
 
-SOP_RBFDeform::SOP_RBFDeform(OP_Network *net, const char *name, OP_Operator *op)
+SOP_FaceDeform::SOP_FaceDeform(OP_Network *net, const char *name, OP_Operator *op)
     : SOP_Node(net, name, op), myGroup(NULL)
 {
    
     mySopFlags.setManagesDataIDs(true);
 }
 
-SOP_RBFDeform::~SOP_RBFDeform() {}
+SOP_FaceDeform::~SOP_FaceDeform() {}
 
 OP_ERROR
-SOP_RBFDeform::cookInputGroups(OP_Context &context, int alone)
+SOP_FaceDeform::cookInputGroups(OP_Context &context, int alone)
 {
     
     return cookInputPointGroups(
@@ -121,7 +121,7 @@ SOP_RBFDeform::cookInputGroups(OP_Context &context, int alone)
 }
 
 OP_ERROR
-SOP_RBFDeform::cookMySop(OP_Context &context)
+SOP_FaceDeform::cookMySop(OP_Context &context)
 {
     
     OP_AutoLockInputs inputs(this);
