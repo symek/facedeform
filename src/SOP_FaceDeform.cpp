@@ -374,14 +374,14 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         for(it=shapes.begin(); it != shapes.end(); it++, ++col) {
             const GU_Detail * shape = *it;
             GA_FOR_ALL_PTOFF(shape, ptoff) {
-                const UT_Vector3 rest_pt_pos  = gdp->getPos3(ptoff);
-                const GA_Index   rest_pt_itx  = gdp->pointIndex(ptoff);
-                const GA_Offset  shape_pt_off = shape->pointOffset(rest_pt_itx);
-                const UT_Vector3 shape_pt_pos = shape->getPos3(shape_pt_off);
-                const UT_Vector3 shape_delta(shape_pt_pos - rest_pt_pos);
-                blends_mat(3*rest_pt_itx + 0, col) = shape_delta.x();
-                blends_mat(3*rest_pt_itx + 1, col) = shape_delta.y(); 
-                blends_mat(3*rest_pt_itx + 2, col) = shape_delta.z();
+                const UT_Vector3 rest_pos  = rest_h.get(ptoff);
+                const GA_Index   rest_itx  = gdp->pointIndex(ptoff);
+                const GA_Offset  shape_off = shape->pointOffset(rest_itx);
+                const UT_Vector3 shape_pos = shape->getPos3(shape_off);
+                const UT_Vector3 shape_delta(shape_pos - rest_pos);
+                blends_mat(3*rest_itx + 0, col) = shape_delta.x();
+                blends_mat(3*rest_itx + 1, col) = shape_delta.y(); 
+                blends_mat(3*rest_itx + 2, col) = shape_delta.z();
             }
         }
 
@@ -389,9 +389,9 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             const GA_Index ptidx  = gdp->pointIndex(ptoff);
             const UT_Vector3 pos  = gdp->getPos3(ptoff);
             const UT_Vector3 rest = rest_h.get(ptoff);
-            delta(3*ptidx + 0) = rest.x() - pos.x();
-            delta(3*ptidx + 1) = rest.y() - pos.y();
-            delta(3*ptidx + 2) = rest.z() - pos.z();
+            delta(3*ptidx + 0) = pos.x() - rest.x();
+            delta(3*ptidx + 1) = pos.y() - rest.y();
+            delta(3*ptidx + 2) = pos.z() - rest.z();
         }
 
         // Orthonormalize blends
