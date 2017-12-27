@@ -53,6 +53,14 @@ static PRM_Name  termChoices[] =
     PRM_Name(0)
 };
 
+static PRM_Default ZeroOneDefaults[] =
+{
+    PRM_Default(0),
+    PRM_Default(1),
+};
+
+const char * weightrange_help = "Clamps total blendshape weights, so that deformation \
+ will be constrained strictly to blends' poses.";
 
 static PRM_ChoiceList  modelMenu(PRM_CHOICELIST_SINGLE, modelChoices);
 static PRM_ChoiceList  termMenu(PRM_CHOICELIST_SINGLE,  termChoices);
@@ -69,6 +77,7 @@ static PRM_Name names[] = {
     PRM_Name("tangent", "Tangent space"),
     PRM_Name("morphspace","Blendshapes subspace"),
     PRM_Name("maxedges","Max edges"),
+    PRM_Name("weightrange", "Weights range")
 };
 
 PRM_Template
@@ -79,12 +88,13 @@ SOP_FaceDeform::myTemplateList[] = {
     PRM_Template(PRM_ORD,   1, &names[1], 0, &termMenu, 0, 0),
     PRM_Template(PRM_FLT_J, 1, &names[2], PRMoneDefaults),
     PRM_Template(PRM_FLT_J, 1, &names[3], PRMfiveDefaults),
-    PRM_Template(PRM_FLT_J,	1, &names[4], PRMoneDefaults, 0, &radiusRange),
-    PRM_Template(PRM_INT_J,	1, &names[5], PRMfourDefaults),
-    PRM_Template(PRM_FLT_J,	1, &names[6], PRMpointOneDefaults),
+    PRM_Template(PRM_FLT_J,	1, &names[4], PRMoneDefaults, 0, &radiusRange), // radius
+    PRM_Template(PRM_INT_J, 1, &names[9], PRMfourDefaults), // maxedges
+    PRM_Template(PRM_INT_J, 1, &names[5], PRMfourDefaults), // layers
+    PRM_Template(PRM_FLT_J, 1, &names[6], PRMpointOneDefaults), // lambda
     PRM_Template(PRM_TOGGLE,1, &names[7], PRMzeroDefaults), // tangent
     PRM_Template(PRM_TOGGLE,1, &names[8], PRMzeroDefaults), // morphspace
-    PRM_Template(PRM_INT_J, 1, &names[9], PRMfourDefaults), // maxedges
+    PRM_Template(PRM_FLT_J, 2, &names[10], ZeroOneDefaults, 0, 0, 0, 0, 0, weightrange_help),
     PRM_Template(),
 };
 
@@ -171,9 +181,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
 
     // Parms:
+    UT_Vector2 weightrange;
+    WEIGHTRANGE(t, weightrange);
     UT_String modelName, termName;
-    MODEL(modelName);
-    TERM(termName);
+    MODEL(modelName); TERM(termName);
     const int model_index  = atoi(modelName.buffer());
     const int term_index   = atoi(termName.buffer());
     const float qcoef  = SYSmax(0.1,  QCOEF(t));
@@ -184,7 +195,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     const int tangent_disp = TANGENT(t);
     const int morph_space  = MORPHSPACE(t);
     const int max_edges    = SYSmax(1, MAXEDGES(t));
-
+    
     if (error() >= UT_ERROR_ABORT)
         return error();
 
@@ -394,6 +405,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             delta(3*ptidx + 2) = pos.z() - rest.z();
         }
 
+        //
+        //delta.normalize();//?
         // Orthonormalize blends
         Eigen::HouseholderQR<Eigen::MatrixXd> orthonormal_mat(blends_mat);
         // scalar product of delta and Q's columns:
@@ -419,8 +432,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                     const float xd = blends_mat(3*ptidx + 0, col);
                     const float yd = blends_mat(3*ptidx + 1, col);
                     const float zd = blends_mat(3*ptidx + 2, col);
-                    const float w  = weights(col) * 3; //!!!???
-                    disp += UT_Vector3(xd, yd, zd) * w;
+                    const float w  = weights(col)*3; //!!!???
+                    disp += UT_Vector3(xd, yd, zd) * SYSclamp(w, weightrange.x(), weightrange.y());
                 }
                 UT_Vector3 pos = rest_h.get(ptoff);// gdp->getPos3(ptoff);
                 gdp->setPos3(ptoff, pos + disp);
