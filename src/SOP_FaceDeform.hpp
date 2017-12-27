@@ -6,8 +6,6 @@
 #include <GA/GA_PageHandle.h>
 
 #include <SOP/SOP_Node.h>
-#include "interpolation.h"
-
 #include <time.h>
 
 #define NO_RBF_THREADS
@@ -138,4 +136,3 @@ rbfDeformThreaded(const GA_Range &range, const std::string &str_model, \
 
 } // End HDK_Sample namespace
 
-#endif

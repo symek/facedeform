@@ -1,3 +1,4 @@
+#include "interpolation.h"
 #include <UT/UT_DSOVersion.h>
 #include "SOP_FaceDeform.hpp"
 
