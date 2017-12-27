@@ -419,10 +419,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                     const float xd = blends_mat(3*ptidx + 0, col);
                     const float yd = blends_mat(3*ptidx + 1, col);
                     const float zd = blends_mat(3*ptidx + 2, col);
-                    const float w  = weights(col); //
+                    const float w  = weights(col) * 3; //!!!???
                     disp += UT_Vector3(xd, yd, zd) * w;
                 }
-                UT_Vector3 pos = gdp->getPos3(ptoff);
+                UT_Vector3 pos = rest_h.get(ptoff);// gdp->getPos3(ptoff);
                 gdp->setPos3(ptoff, pos + disp);
             }
         }
