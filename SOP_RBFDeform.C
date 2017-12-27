@@ -63,7 +63,8 @@ static PRM_Name names[] = {
     PRM_Name("radius",  "Radius"),
     PRM_Name("layers",  "Layers"),
     PRM_Name("lambda",  "Lambda"),
-    PRM_Name("tangent", "Tangent space"),
+    PRM_Name("tangent", "Displace in tangent space"),
+    PRM_Name("maxedges","Max edges of displacement"),
 };
 
 PRM_Template
@@ -78,6 +79,7 @@ SOP_RBFDeform::myTemplateList[] = {
     PRM_Template(PRM_INT_J,	1, &names[5], PRMfourDefaults),
     PRM_Template(PRM_FLT_J,	1, &names[6], PRMpointOneDefaults),
     PRM_Template(PRM_TOGGLE,1, &names[7], PRMzeroDefaults),
+    PRM_Template(PRM_INT_J, 1, &names[8], PRMfourDefaults),
     PRM_Template(),
 };
 
@@ -187,9 +189,10 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     const float radius = SYSmax(0.01, RADIUS(t));
     const int   layers = SYSmax(1,    LAYERS(t));
     const float lambda = SYSmax(0.01, LAMBDA(t));
-    const int   tangent= TANGENT(t);
-    const int modelIndex = atoi(modelName.buffer());
-    const int termIndex  = atoi(termName.buffer());
+    const int tangent_disp = TANGENT(t);
+    const int model_index  = atoi(modelName.buffer());
+    const int term_index   = atoi(termName.buffer());
+    const int max_edges    = SYSmax(1, MAXEDGES(t));
 
     if (error() >= UT_ERROR_ABORT)
         return error();
@@ -199,11 +202,16 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     GA_ROHandleV3  tangentv_h(gdp, GA_ATTRIB_POINT, "tangentv");
     GA_ROHandleV3  normals_h(gdp, GA_ATTRIB_POINT,  "N");
 
-    if (tangent == 1 && (!tangentu_h.isValid() || !tangentv_h.isValid() || !normals_h.isValid()))
-         addWarning(SOP_MESSAGE, "Can't deform in tangent space without tangent[u/v] and N attribs.");
+     
     // Tangent space:
-    const bool make_tangent_space = tangent && tangentu_h.isValid() && \
+    const bool do_tangent_disp = tangent_disp  && tangentu_h.isValid() && \
         tangentv_h.isValid() && normals_h.isValid();
+
+
+    if (tangent_disp  && !do_tangent_disp) {
+         addWarning(SOP_MESSAGE, "Append PolyFrameSOP and enable tangent[u/v] \
+            and N attribute to allow tangent displacement.");
+    }
 
     // Create model objects and ralated items:
     std::string str_model;
@@ -216,12 +224,12 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     }
     catch (alglib::ap_error err)
     {
-        addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't build RBF model with provided points.");
+        addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't build RBF model.");
         return error();
     }
 
     // Select RBF model:
-    switch(modelIndex)
+    switch(model_index)
     {
         case ALGLIB_MODEL_QNN:
             alglib::rbfsetalgoqnn(model, qcoef, zcoef);
@@ -232,7 +240,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     }
 
     // Select RBF term:
-    switch(termIndex)
+    switch(term_index)
     {
         case ALGLIB_TERM_LINEAR:
             alglib::rbfsetlinterm(model);
@@ -248,15 +256,9 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
 
     // Finally build model:
     alglib::rbfbuildmodel(model, report);
-
-    #ifdef DEBUG
-        std::cout << "Model built: " << timer.current() << std::endl;
-    #endif
-
     // Early quit if model wasn't built properly (singular matrix etc):
-    if (static_cast<int>(report.terminationtype) != 1)
-    {
-        addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't solve the problem. Bad matrix?");
+    if (static_cast<int>(report.terminationtype) != 1) {
+        addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't solve the problem.");
         return error();
     }
     // Debug:
@@ -270,20 +272,13 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // further calculation.
     alglib::rbfserialize(model, str_model);
 
-    #ifdef DEBUG
-        std::cout << "Model serialized: " << timer.current() << std::endl;
-    #endif
-
     // Here we determine which groups we have to work on.  We only
     // handle point groups.
     if (cookInputGroups(context) >= UT_ERROR_ABORT)
         return error();
 
     // Execute mode directly:
-    #ifdef NO_RBF_THREADS
-    #ifdef DEBUG
-        std::cout << "Single thread mode." << std::endl;
-    #endif
+    // #ifdef NO_RBF_THREADS // we use only singlethread for now.
 
     // Execute storage:
     alglib::real_1d_array coord("[0,0,0]");
@@ -297,63 +292,59 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
   
     GA_RWHandleV3  cd_h(gdp->addDiffuseAttribute(GA_ATTRIB_POINT));
 
-    GEO_PointTree gdp_pt_tree, rest_gdp_pt_tree;
-    gdp_pt_tree.build(gdp);
-    rest_gdp_pt_tree.build(rest_gdp);
+    GEO_PointTree gdp_tree, rest_tree;
+    gdp_tree.build(gdp);
+    rest_tree.build(rest_gdp);
   
     {
-        // Poor man geodesic distance
+        // Poor's man geodesic distance
         GA_FOR_ALL_PTOFF(rest_gdp, ptoff) { 
-            const UT_Vector3 anchor_pt_pos = rest_gdp->getPos3(ptoff);
-            const GA_Index  target_pt_idx  = gdp_pt_tree.findNearestIdx(anchor_pt_pos);
-            const GA_Offset target_pt_off  = gdp->getPointMap().offsetFromIndex(target_pt_idx);
-
-            gq_detail.groupEdgePoints(target_pt_off, layers, partial_group);
-
-            // for (GA_Size i=0; i<partial_group.entries(); ++i) {
-            //     const GA_Offset  partial_pt_off = partial_group.findOffsetAtGroupIndex(i);
-            //     const UT_Vector3 partial_pt_pos = gdp->getPos3(partial_pt_off);
-            //     const UT_Vector3 target_pt_clr  = cd_h->get(partial_pt_off);
-            //     const float anchor_target_dist  = distance3d(partial_pt_pos, anchor_pt_pos);
-            //     if (target_pt_clr.x() == 1.0)
-            //         continue;
-            //     else {
-            //         clr.x() += dist; 
-            //         cd_h.set(partial_pt_off, clr);
-            //     }
-            //     // if (distance3d(pos, restP) < radius)
-            //         // partial_group.setElement(partial_pt_off, false);
-            // }
-
+            const UT_Vector3 anchor_pos  = rest_gdp->getPos3(ptoff);
+            const GA_Index  target_idx   = gdp_tree.findNearestIdx(anchor_pos);
+            const GA_Offset target_ptoff = gdp->pointOffset(target_idx);
+            gq_detail.groupEdgePoints(target_ptoff, max_edges, partial_group);
             affected_group.combine(&partial_group);
             partial_group.clear();
         }
 
-        UT_Vector3 clr(1,0,0);
+        UT_Vector3 affected_clr(.5,0,0);
         
         for (GA_Size i=0; i<affected_group.entries(); ++i) 
         {
-            const GA_Offset target_pt_off  = affected_group.findOffsetAtGroupIndex(i);
-            const UT_Vector3 target_pt_pos = gdp->getPos3(target_pt_off);
-            const GA_Index  anchor_pt_idx  = rest_gdp_pt_tree.findNearestIdx(target_pt_pos);
-            const GA_Offset anchor_pt_off  = rest_gdp->getPointMap().offsetFromIndex(anchor_pt_idx);
-            const UT_Vector3 anchor_pt_pos = rest_gdp->getPos3(anchor_pt_off); 
+            const GA_Offset  target_ptoff = affected_group.findOffsetAtGroupIndex(i);
+            const UT_Vector3 target_pos   = gdp->getPos3(target_ptoff);
+            const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
+            const GA_Offset  anchor_ptoff = rest_gdp->pointOffset(anchor_idx);
+            const UT_Vector3 anchor_pos   = rest_gdp->getPos3(anchor_ptoff); 
 
-            if (distance3d(target_pt_pos, anchor_pt_pos) > radius)
+            if (distance3d(target_pos, anchor_pos) > radius)
                 continue;
 
-            const double dp[3]   = {target_pt_pos.x(), 
-                                    target_pt_pos.y(), 
-                                    target_pt_pos.z()};
+            const double dp[3] = {target_pos.x(), target_pos.y(), target_pos.z()};
 
             coord.setcontent(3, dp);
             alglib::rbfcalc(model, coord, result);
             UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
-            cd_h.set(target_pt_off, clr);
-            gdp->setPos3(target_pt_off, target_pt_pos + displace);
-        }
-        
+            cd_h.set(target_ptoff, affected_clr);
 
+            if (do_tangent_disp) {
+                UT_Vector3 u = tangentu_h.get(ptoff); 
+                UT_Vector3 v = tangentv_h.get(ptoff);
+                UT_Vector3 n = normals_h.get(ptoff);
+                u.normalize(); v.normalize(); n.normalize();
+                UT_Matrix3  b(u.x(), u.y(), u.z(),
+                              v.x(), v.y(), v.z(),
+                              n.x(), n.y(), n.z());
+
+                b = b.transposedCopy() * b;
+                UT_Vector3 a1(u * b); a1.normalize();
+                UT_Vector3 a2(v * b); a2.normalize();
+                const float da1 = displace.dot(a1);
+                const float da2 = displace.dot(a2);
+                displace        = UT_Vector3(a1 * da1 + a2 * da2);
+            }
+            gdp->setPos3(target_ptoff, target_pos + displace);
+        }
     }
 
     // Execute model
@@ -365,7 +356,7 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     //     alglib::rbfcalc(model, coord, result);
     //     UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
 
-    //     if (make_tangent_space)
+    //     if (do_tangent_disp)
     //     {
     //         UT_Vector3 u = tangentu_h.get(ptoff); 
     //         UT_Vector3 v = tangentv_h.get(ptoff);
@@ -387,17 +378,13 @@ SOP_RBFDeform::cookMySop(OP_Context &context)
     // }
 
 
-    #else
+    // #else
 
     // or try it in parallel (no groups support yet)
     // const GA_Range range(gdp->getPointRange());
-    // rbfDeformThreaded(range, str_model, make_tangent_space, gdp);
+    // rbfDeformThreaded(range, str_model, do_tangent_disp, gdp);
 
-    #endif
-
-    #ifdef DEBUG
-    std::cout << "Model executed: " << timer.current() << std::endl;
-    #endif
+    // #endif // end of NO_RBF_THREADS
 
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.
