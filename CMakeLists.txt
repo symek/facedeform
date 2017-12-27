@@ -18,6 +18,16 @@ endif()
 include_directories( ${ALGLIB_SRC_PATH} )
 file( GLOB ALGLIB_SOURCES ${ALGLIB_SRC_PATH}/*.cpp )
 
+# Eigen time
+set( EIGEN_INCLUDE_DIR "$ENV{EIGEN_INCLUDE_DIR}")
+if (NOT EXISTS ${EIGEN_INCLUDE_DIR})
+	message(FATAL_ERROR "Specify EIGEN location with $EIGEN_INCLUDE_DIR. CMake will exit now.")
+else()
+	message(STATUS "EIGEN_INCLUDE_DIR: ${EIGEN_INCLUDE_DIR}")
+endif()
+include_directories(${EIGEN_INCLUDE_DIR})
+
+
 # Add a library with two source files.
 set( library_name SOP_FaceDeform )
 

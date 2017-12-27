@@ -14,6 +14,8 @@
 #include <GQ/GQ_Detail.h>
 #include <GEO/GEO_PointTree.h>
 
+#include <Eigen/Geometry>
+#include <Eigen/StdVector>
 
 #include "stdafx.h"
 #include <stdlib.h>
@@ -28,11 +30,11 @@ newSopOperator(OP_OperatorTable *table)
 {
     table->addOperator(new OP_Operator(
         "facedeform",
-        "Face Deformer",
+        "Face Deform",
         SOP_FaceDeform::myConstructor,
         SOP_FaceDeform::myTemplateList,
         3,
-        3,
+        1000,
         0));
 }
 
@@ -64,8 +66,9 @@ static PRM_Name names[] = {
     PRM_Name("radius",  "Radius"),
     PRM_Name("layers",  "Layers"),
     PRM_Name("lambda",  "Lambda"),
-    PRM_Name("tangent", "Displace in tangent space"),
-    PRM_Name("maxedges","Max edges of displacement"),
+    PRM_Name("tangent", "Tangent space"),
+    PRM_Name("morphspace","Blendshapes subspace"),
+    PRM_Name("maxedges","Max edges"),
 };
 
 PRM_Template
@@ -79,8 +82,9 @@ SOP_FaceDeform::myTemplateList[] = {
     PRM_Template(PRM_FLT_J,	1, &names[4], PRMoneDefaults, 0, &radiusRange),
     PRM_Template(PRM_INT_J,	1, &names[5], PRMfourDefaults),
     PRM_Template(PRM_FLT_J,	1, &names[6], PRMpointOneDefaults),
-    PRM_Template(PRM_TOGGLE,1, &names[7], PRMzeroDefaults),
-    PRM_Template(PRM_INT_J, 1, &names[8], PRMfourDefaults),
+    PRM_Template(PRM_TOGGLE,1, &names[7], PRMzeroDefaults), // tangent
+    PRM_Template(PRM_TOGGLE,1, &names[8], PRMzeroDefaults), // morphspace
+    PRM_Template(PRM_INT_J, 1, &names[9], PRMfourDefaults), // maxedges
     PRM_Template(),
 };
 
@@ -133,66 +137,52 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     duplicatePointSource(0, context);
 
     // Get rest and deform geometry:
-    const GU_Detail *rest_gdp   = inputGeo(1);
-    const GU_Detail *deform_gdp = inputGeo(2);
+    const GU_Detail *rest_control_rig   = inputGeo(1);
+    const GU_Detail *deform_control_rig = inputGeo(2);
 
     // Point count should match:
-    if (rest_gdp->getNumPoints() != deform_gdp->getNumPoints())
-    {
+    if (rest_control_rig->getNumPoints() != deform_control_rig->getNumPoints()) {
         addError(SOP_ERR_MISMATCH_POINT, "Rest and deform geometry should match.");
         return error();
     }
 
-    #ifdef DEBUG
-        Timer timer;
-        timer.start();
-    #endif
-
+    const int rest_npoints = rest_control_rig->getNumPoints();
     alglib::real_2d_array rbf_data_model;
-    int numpoints = rest_gdp->getNumPoints();
-    rbf_data_model.setlength(numpoints, 6);
-
-    #ifdef DEBUG
-        std::cout << "Storage allocated: " << timer.current() << std::endl;
-    #endif
+    rbf_data_model.setlength(rest_npoints, 6);
 
     // Construct model data:
     GA_Offset ptoff;
     {   
-        GA_FOR_ALL_PTOFF(rest_gdp, ptoff)
+        GA_FOR_ALL_PTOFF(rest_control_rig, ptoff)
         {
-            const UT_Vector3 restP   = rest_gdp->getPos3(ptoff);
-            const UT_Vector3 deformP = deform_gdp->getPos3(ptoff);
+            const UT_Vector3 restP   = rest_control_rig->getPos3(ptoff);
+            const UT_Vector3 deformP = deform_control_rig->getPos3(ptoff);
             const UT_Vector3 delta   = UT_Vector3(deformP - restP);
             double data[6] = {restP.x(), restP.y(), restP.z(), delta.x(), delta.y(), delta.z()};
             // FIXME: It seems that for some types of prims (NURBS?) getNumPoints()
             // is lower than last ptoff, so this crashes Houdini (I should not use ptoff then?)
-            if (static_cast<uint>(ptoff) < numpoints)
-            {
+            const GA_Index ptidx = rest_control_rig->pointIndex(ptoff); 
+            if (ptidx < rest_npoints) {
                 for (int i=0; i<6; ++i)
-                    rbf_data_model[static_cast<uint>(ptoff)][i] = data[i]; 
+                    rbf_data_model[ptidx][i] = data[i]; 
             }
         }
     }
 
-    #if 1
-
-    #ifdef DEBUG
-        std::cout << "Data built: " << timer.current() << std::endl;
-    #endif
 
     // Parms:
     UT_String modelName, termName;
     MODEL(modelName);
     TERM(termName);
+    const int model_index  = atoi(modelName.buffer());
+    const int term_index   = atoi(termName.buffer());
     const float qcoef  = SYSmax(0.1,  QCOEF(t));
     const float zcoef  = SYSmax(0.1,  ZCOEF(t));
     const float radius = SYSmax(0.01, RADIUS(t));
     const int   layers = SYSmax(1,    LAYERS(t));
     const float lambda = SYSmax(0.01, LAMBDA(t));
     const int tangent_disp = TANGENT(t);
-    const int model_index  = atoi(modelName.buffer());
-    const int term_index   = atoi(termName.buffer());
+    const int morph_space  = MORPHSPACE(t);
     const int max_edges    = SYSmax(1, MAXEDGES(t));
 
     if (error() >= UT_ERROR_ABORT)
@@ -212,6 +202,15 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     if (tangent_disp  && !do_tangent_disp) {
          addWarning(SOP_MESSAGE, "Append PolyFrameSOP and enable tangent[u/v] \
             and N attribute to allow tangent displacement.");
+    }
+
+    if (morph_space && (nConnectedInputs() > 3)) {
+         GA_Attribute * rest = gdp->addRestAttribute(GA_ATTRIB_POINT);
+         const GA_Attribute * pos = gdp->getP();
+         rest->replace(*pos);
+    } 
+    else if (morph_space) {
+        addWarning(SOP_MESSAGE, "No Blendshapes found. Ignoring morphspace deformation.");
     }
 
     // Create model objects and ralated items:
@@ -295,12 +294,12 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
     GEO_PointTree gdp_tree, rest_tree;
     gdp_tree.build(gdp);
-    rest_tree.build(rest_gdp);
+    rest_tree.build(rest_control_rig);
   
     {
         // Poor's man geodesic distance
-        GA_FOR_ALL_PTOFF(rest_gdp, ptoff) { 
-            const UT_Vector3 anchor_pos  = rest_gdp->getPos3(ptoff);
+        GA_FOR_ALL_PTOFF(rest_control_rig, ptoff) { 
+            const UT_Vector3 anchor_pos  = rest_control_rig->getPos3(ptoff);
             const GA_Index  target_idx   = gdp_tree.findNearestIdx(anchor_pos);
             const GA_Offset target_ptoff = gdp->pointOffset(target_idx);
             gq_detail.groupEdgePoints(target_ptoff, max_edges, partial_group);
@@ -315,8 +314,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             const GA_Offset  target_ptoff = affected_group.findOffsetAtGroupIndex(i);
             const UT_Vector3 target_pos   = gdp->getPos3(target_ptoff);
             const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
-            const GA_Offset  anchor_ptoff = rest_gdp->pointOffset(anchor_idx);
-            const UT_Vector3 anchor_pos   = rest_gdp->getPos3(anchor_ptoff); 
+            const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_idx);
+            const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
 
             if (distance3d(target_pos, anchor_pos) > radius)
                 continue;
@@ -346,6 +345,88 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             }
             gdp->setPos3(target_ptoff, target_pos + displace);
         }
+    }
+
+    // Any input above 2 is considered as morph targets...
+    if (morph_space && (nConnectedInputs() > 3) )
+    {
+        const GA_Size npoints = gdp->getNumPoints();
+        GA_ROHandleV3 rest_h(gdp, GA_ATTRIB_POINT, "rest");
+
+        std::vector<const GU_Detail*> shapes;
+
+        for (unsigned i=3; i < nConnectedInputs(); ++i) {
+            const GU_Detail* shape = inputGeo(i);
+            // 
+            if (shape->getNumPoints() != npoints) {
+                addWarning(SOP_ERR_MISMATCH_POINT, \
+                    "Some blendshapes doesn't match rest pose point count!");
+                continue;
+            }
+            shapes.push_back(shape);
+        }
+
+        Eigen::MatrixXd blends_mat(npoints*3, shapes.size());
+        Eigen::VectorXd delta(npoints*3);
+
+        unsigned col = 0;
+        std::vector<const GU_Detail*>::const_iterator it;
+        for(it=shapes.begin(); it != shapes.end(); it++, ++col) {
+            const GU_Detail * shape = *it;
+            GA_FOR_ALL_PTOFF(shape, ptoff) {
+                const UT_Vector3 rest_pt_pos  = gdp->getPos3(ptoff);
+                const GA_Index   rest_pt_itx  = gdp->pointIndex(ptoff);
+                const GA_Offset  shape_pt_off = shape->pointOffset(rest_pt_itx);
+                const UT_Vector3 shape_pt_pos = shape->getPos3(shape_pt_off);
+                const UT_Vector3 shape_delta(shape_pt_pos - rest_pt_pos);
+                blends_mat(3*rest_pt_itx + 0, col) = shape_delta.x();
+                blends_mat(3*rest_pt_itx + 1, col) = shape_delta.y(); 
+                blends_mat(3*rest_pt_itx + 2, col) = shape_delta.z();
+            }
+        }
+
+        GA_FOR_ALL_PTOFF(gdp, ptoff) {
+            const GA_Index ptidx  = gdp->pointIndex(ptoff);
+            const UT_Vector3 pos  = gdp->getPos3(ptoff);
+            const UT_Vector3 rest = rest_h.get(ptoff);
+            delta(3*ptidx + 0) = rest.x() - pos.x();
+            delta(3*ptidx + 1) = rest.y() - pos.y();
+            delta(3*ptidx + 2) = rest.z() - pos.z();
+        }
+
+        // Orthonormalize blends
+        Eigen::HouseholderQR<Eigen::MatrixXd> orthonormal_mat(blends_mat);
+        // scalar product of delta and Q's columns:
+        Eigen::MatrixXd weights_mat = delta.asDiagonal() * orthonormal_mat.matrixQR();//Q;
+        // Get weights out of this: 
+        Eigen::VectorXd weights = weights_mat.colwise().sum();
+
+        // copy blendshape's weights into detail attribute
+        GA_Attribute * w_attrib = gdp->addFloatArray(GA_ATTRIB_DETAIL, "weights", 1);
+        const GA_AIFNumericArray * w_aif = w_attrib->getAIFNumericArray();
+        UT_FprealArray weights_array(shapes.size());
+        for(int i=0;i<shapes.size(); ++i) {
+            weights_array.append(weights(i));
+        }
+        w_aif->set(w_attrib, 0, weights_array);
+        w_attrib->bumpDataId();
+
+        {
+            GA_FOR_ALL_PTOFF(gdp, ptoff) {
+                const GA_Size ptidx = gdp->pointIndex(ptoff);
+                UT_Vector3 disp(0,0,0);
+                for(int col=0; col<shapes.size(); ++col) {
+                    const float xd = blends_mat(3*ptidx + 0, col);
+                    const float yd = blends_mat(3*ptidx + 1, col);
+                    const float zd = blends_mat(3*ptidx + 2, col);
+                    const float w  = weights(col); //
+                    disp += UT_Vector3(xd, yd, zd) * w;
+                }
+                UT_Vector3 pos = gdp->getPos3(ptoff);
+                gdp->setPos3(ptoff, pos + disp);
+            }
+        }
+
     }
 
     // Execute model
@@ -389,7 +470,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.
-    #endif
+
 
     if (!myGroup || !myGroup->isEmpty())
         gdp->getP()->bumpDataId();
