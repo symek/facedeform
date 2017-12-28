@@ -401,16 +401,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                 UT_Vector3 v = tangentv_h.get(ptoff);
                 UT_Vector3 n = normals_h.get(ptoff);
                 u.normalize(); v.normalize(); n.normalize();
-                UT_Matrix3  b(u.x(), u.y(), u.z(),
-                              v.x(), v.y(), v.z(),
-                              n.x(), n.y(), n.z());
-
-                b = b.transposedCopy() * b;
-                UT_Vector3 a1(u * b); a1.normalize();
-                UT_Vector3 a2(v * b); a2.normalize();
-                const float da1 = displace.dot(a1);
-                const float da2 = displace.dot(a2);
-                displace        = UT_Vector3(a1 * da1 + a2 * da2);
+                project_to_tangents(u, v, n, displace);
             }
             gdp->setPos3(target_ptoff, target_pos + displace);
         }

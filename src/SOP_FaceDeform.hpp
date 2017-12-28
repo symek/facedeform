@@ -19,6 +19,21 @@
 
 namespace facedeform {
 
+inline void project_to_tangents(UT_Vector3 & u, UT_Vector3 & v, 
+                                UT_Vector3 & n, UT_Vector3 & displace)
+{
+    UT_Matrix3  b(u.x(), u.y(), u.z(),
+                  v.x(), v.y(), v.z(),
+                  n.x(), n.y(), n.z());
+
+    b = b.transposedCopy() * b;
+    UT_Vector3 a1(u * b); a1.normalize();
+    UT_Vector3 a2(v * b); a2.normalize();
+    const float da1 = displace.dot(a1);
+    const float da2 = displace.dot(a2);
+    displace = UT_Vector3(a1 * da1 + a2 * da2); 
+}
+
 
 class SOP_FaceDeform : public SOP_Node
 {
