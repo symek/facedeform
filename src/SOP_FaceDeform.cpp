@@ -1,6 +1,5 @@
 #include "interpolation.h"
 #include <UT/UT_DSOVersion.h>
-#include "SOP_FaceDeform.hpp"
 
 #include <GU/GU_Detail.h>
 #include <OP/OP_Operator.h>
@@ -17,6 +16,7 @@
 
 #include <Eigen/Geometry>
 #include <Eigen/StdVector>
+#include "SOP_FaceDeform.hpp"
 
 #include "stdafx.h"
 #include <stdlib.h>
@@ -394,17 +394,16 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         }
     }
 
+
+    // 
     // Any input above 2 is considered as morph targets...
     if (morph_space && (nConnectedInputs() > 3) )
     {
         const GA_Size npoints = gdp->getNumPoints();
         GA_ROHandleV3 rest_h(gdp, GA_ATTRIB_POINT, "rest");
-
         std::vector<const GU_Detail*> shapes;
-
         for (unsigned i=3; i < nConnectedInputs(); ++i) {
             const GU_Detail* shape = inputGeo(i);
-            // 
             if (shape->getNumPoints() != npoints) {
                 addWarning(SOP_ERR_MISMATCH_POINT, \
                     "Some blendshapes doesn't match rest pose point count!");
@@ -415,41 +414,13 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
         Eigen::MatrixXd blends_mat(npoints*3, shapes.size());
         Eigen::VectorXd delta(npoints*3);
-
-        unsigned col = 0;
-        std::vector<const GU_Detail*>::const_iterator it;
-        for(it=shapes.begin(); it != shapes.end(); it++, ++col) {
-            const GU_Detail * shape = *it;
-            GA_FOR_ALL_PTOFF(shape, ptoff) {
-                const UT_Vector3 rest_pos  = rest_h.get(ptoff);
-                const GA_Index   rest_itx  = gdp->pointIndex(ptoff);
-                const GA_Offset  shape_off = shape->pointOffset(rest_itx);
-                const UT_Vector3 shape_pos = shape->getPos3(shape_off);
-                const UT_Vector3 shape_delta(shape_pos - rest_pos);
-                blends_mat(3*rest_itx + 0, col) = shape_delta.x();
-                blends_mat(3*rest_itx + 1, col) = shape_delta.y(); 
-                blends_mat(3*rest_itx + 2, col) = shape_delta.z();
-            }
-        }
-
-        GA_FOR_ALL_PTOFF(gdp, ptoff) {
-            const GA_Index ptidx  = gdp->pointIndex(ptoff);
-            const UT_Vector3 pos  = gdp->getPos3(ptoff);
-            const UT_Vector3 rest = rest_h.get(ptoff);
-            delta(3*ptidx + 0) = pos.x() - rest.x();
-            delta(3*ptidx + 1) = pos.y() - rest.y();
-            delta(3*ptidx + 2) = pos.z() - rest.z();
-        }
-
-        //
-        //delta.normalize();//?
+        create_blendshape_matrix(gdp, shapes, blends_mat, delta);
         // Orthonormalize blends
         Eigen::HouseholderQR<Eigen::MatrixXd> orthonormal_mat(blends_mat);
         // scalar product of delta and Q's columns:
-        Eigen::MatrixXd weights_mat = delta.asDiagonal() * orthonormal_mat.matrixQR();//Q;
+        Eigen::MatrixXd weights_mat = delta.asDiagonal() * orthonormal_mat.matrixQR();
         // Get weights out of this: 
         Eigen::VectorXd weights = weights_mat.colwise().sum();
-
         // copy blendshape's weights into detail attribute
         GA_Attribute * w_attrib = gdp->addFloatArray(GA_ATTRIB_DETAIL, "weights", 1);
         const GA_AIFNumericArray * w_aif = w_attrib->getAIFNumericArray();
