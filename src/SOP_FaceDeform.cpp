@@ -59,6 +59,24 @@ static PRM_Default ZeroOneDefaults[] =
     PRM_Default(1),
 };
 
+const char * model_help = "QNN and Multilayer are different algorithms to perform RBF \
+ interpolation in ALGLIB. Multilayer is more robust and thus more expensive.";
+
+const char * term_help = "By appending small linear or constant term to RBF system one \
+ can stabalize it and help to solve smooth solution.";
+
+const char * radius_help = "Radius controls not only RBF solution (how far to reach for a scattered data), \
+ but also radius of deformation applied to geometry.";
+
+const char * maxedges_help = "Number of edges deformation affects geometry. This is applied before radius.";
+
+const char * tangent_help = "Project deformation into tangential space of a rest geometry. This helps to remove \
+ extreme deformations. ";
+
+const char * morphspace_help = "Projects deformation into subspace defined by blendshapes of a base mesh. \
+ They should be connected after second and third input and match rest mesh topology (unlike 2d and 3rd input which are\
+    typically sparser than first input (rest pose geo)).";
+
 const char * weightrange_help = "Clamps total blendshape weights, so that deformation \
  will be constrained strictly to blends' poses.";
 
@@ -84,16 +102,16 @@ PRM_Template
 SOP_FaceDeform::myTemplateList[] = {
     PRM_Template(PRM_STRING,    1, &PRMgroupName, 0, &SOP_Node::pointGroupMenu, 0, 0, \
         SOP_Node::getGroupSelectButton(GA_GROUP_POINT)),
-    PRM_Template(PRM_ORD,   1, &names[0], 0, &modelMenu, 0, 0),
-    PRM_Template(PRM_ORD,   1, &names[1], 0, &termMenu, 0, 0),
+    PRM_Template(PRM_ORD,   1, &names[0], 0, &modelMenu, 0, 0, 0, 0, model_help),
+    PRM_Template(PRM_ORD,   1, &names[1], 0, &termMenu, 0, 0, 0, 0, term_help),
     PRM_Template(PRM_FLT_J, 1, &names[2], PRMoneDefaults),
     PRM_Template(PRM_FLT_J, 1, &names[3], PRMfiveDefaults),
-    PRM_Template(PRM_FLT_J,	1, &names[4], PRMoneDefaults, 0, &radiusRange), // radius
-    PRM_Template(PRM_INT_J, 1, &names[9], PRMfourDefaults), // maxedges
+    PRM_Template(PRM_FLT_J,	1, &names[4], PRMoneDefaults, 0, &radiusRange, 0, 0, 0, radius_help), // radius
+    PRM_Template(PRM_INT_J, 1, &names[9], PRMfourDefaults, 0, 0, 0, 0, 0, maxedges_help), // maxedges
     PRM_Template(PRM_INT_J, 1, &names[5], PRMfourDefaults), // layers
     PRM_Template(PRM_FLT_J, 1, &names[6], PRMpointOneDefaults), // lambda
-    PRM_Template(PRM_TOGGLE,1, &names[7], PRMzeroDefaults), // tangent
-    PRM_Template(PRM_TOGGLE,1, &names[8], PRMzeroDefaults), // morphspace
+    PRM_Template(PRM_TOGGLE,1, &names[7], PRMzeroDefaults, 0, 0, 0, 0, 0, tangent_help), // tangent
+    PRM_Template(PRM_TOGGLE,1, &names[8], PRMzeroDefaults, 0, 0, 0, 0, 0, morphspace_help), // morphspace
     PRM_Template(PRM_FLT_J, 2, &names[10], ZeroOneDefaults, 0, 0, 0, 0, 0, weightrange_help),
     PRM_Template(),
 };
@@ -300,8 +318,14 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     GA_PointGroup partial_group(*gdp);
 
     // GA_PointGroup::GA_PointGroup(const GU_Detail & gdp);
-  
-    GA_RWHandleV3  cd_h(gdp->addDiffuseAttribute(GA_ATTRIB_POINT));
+    UT_Vector3 affected_clr(.5,0,0);
+    GA_RWHandleV3 cd_h;
+    if (getPicked()) {
+        cd_h = GA_RWHandleV3(gdp->findDiffuseAttribute(GA_ATTRIB_POINT));
+        if (!cd_h.isValid()) {
+            cd_h = GA_RWHandleV3(gdp->addDiffuseAttribute(GA_ATTRIB_POINT));
+        }
+    }
 
     GEO_PointTree gdp_tree, rest_tree;
     gdp_tree.build(gdp);
@@ -318,8 +342,6 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             partial_group.clear();
         }
 
-        UT_Vector3 affected_clr(.5,0,0);
-        
         for (GA_Size i=0; i<affected_group.entries(); ++i) 
         {
             const GA_Offset  target_ptoff = affected_group.findOffsetAtGroupIndex(i);
@@ -336,7 +358,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             coord.setcontent(3, dp);
             alglib::rbfcalc(model, coord, result);
             UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
-            cd_h.set(target_ptoff, affected_clr);
+
+            if (getPicked() && cd_h.isValid()) {
+                cd_h.set(target_ptoff, affected_clr);
+            }
 
             if (do_tangent_disp) {
                 UT_Vector3 u = tangentu_h.get(ptoff); 
