@@ -103,7 +103,7 @@ static PRM_Name names[] = {
     PRM_Name("maxedges",      "Max edges"),
     PRM_Name("doclampweight", "Clamp weights"),
     PRM_Name("weightrange", "Range"),
-    PRM_Name("dofalloff",   "Falloff dispacement"),
+    PRM_Name("dofalloff",   "Falloff"),
     PRM_Name("falloffrate", "Falloff rate (exponent)"),
 };
 
@@ -180,36 +180,13 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     const GU_Detail *rest_control_rig   = inputGeo(1);
     const GU_Detail *deform_control_rig = inputGeo(2);
 
-    // Point count should match:
+    // Points count in control rig should match:
     if (rest_control_rig->getNumPoints() != deform_control_rig->getNumPoints()) {
         addError(SOP_ERR_MISMATCH_POINT, "Rest and deform geometry should match.");
         return error();
     }
 
-    const int rest_npoints = rest_control_rig->getNumPoints();
-    alglib::real_2d_array rbf_data_model;
-    rbf_data_model.setlength(rest_npoints, 6);
-
-    // Construct model data:
-    GA_Offset ptoff;
-    {   
-        GA_FOR_ALL_PTOFF(rest_control_rig, ptoff)
-        {
-            const UT_Vector3 restP   = rest_control_rig->getPos3(ptoff);
-            const UT_Vector3 deformP = deform_control_rig->getPos3(ptoff);
-            const UT_Vector3 delta   = UT_Vector3(deformP - restP);
-            double data[6] = {restP.x(), restP.y(), restP.z(), delta.x(), delta.y(), delta.z()};
-            // FIXME: It seems that for some types of prims (NURBS?) getNumPoints()
-            // is lower than last ptoff, so this crashes Houdini (I should not use ptoff then?)
-            const GA_Index ptidx = rest_control_rig->pointIndex(ptoff); 
-            if (ptidx < rest_npoints) {
-                for (int i=0; i<6; ++i)
-                    rbf_data_model[ptidx][i] = data[i]; 
-            }
-        }
-    }
-
-
+    /// UI
     // ALGLIB parms:
     UT_String modelName, termName;
     MODEL(modelName); 
@@ -237,28 +214,50 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     if (error() >= UT_ERROR_ABORT)
         return error();
 
+
+
+
+    const int rest_npoints = rest_control_rig->getNumPoints();
+    alglib::real_2d_array rbf_data_model;
+    rbf_data_model.setlength(rest_npoints, 6);
+
+    // Construct model data:
+    GA_Offset ptoff;
+    {   
+        GA_FOR_ALL_PTOFF(rest_control_rig, ptoff)
+        {
+            const UT_Vector3 restP   = rest_control_rig->getPos3(ptoff);
+            const UT_Vector3 deformP = deform_control_rig->getPos3(ptoff);
+            const UT_Vector3 delta   = UT_Vector3(deformP - restP);
+            double data[6] = {restP.x(), restP.y(), restP.z(), delta.x(), 
+                delta.y(), delta.z()};
+            const GA_Index ptidx = rest_control_rig->pointIndex(ptoff); 
+            if (ptidx < rest_npoints) {
+                for (int i=0; i<6; ++i)
+                    rbf_data_model[ptidx][i] = data[i]; 
+            }
+        }
+    }
+
+
     // Do we have tangents?
     GA_ROHandleV3  tangentu_h(gdp, GA_ATTRIB_POINT, "tangentu");
     GA_ROHandleV3  tangentv_h(gdp, GA_ATTRIB_POINT, "tangentv");
     GA_ROHandleV3  normals_h(gdp, GA_ATTRIB_POINT,  "N");
-
-     
-    // Tangent space:
+    // Do we do tangent projection?
     const bool do_tangent_disp = tangent_disp  && tangentu_h.isValid() && \
         tangentv_h.isValid() && normals_h.isValid();
-
-
     if (tangent_disp  && !do_tangent_disp) {
          addWarning(SOP_MESSAGE, "Append PolyFrameSOP and enable tangent[u/v] \
             and N attribute to allow tangent displacement.");
     }
 
+    // In case we do blendspace projection we need to store rest P.
     if (morph_space && (nConnectedInputs() > 3)) {
          GA_Attribute * rest = gdp->addRestAttribute(GA_ATTRIB_POINT);
          const GA_Attribute * pos = gdp->getP();
          rest->replace(*pos);
-    } 
-    else if (morph_space) {
+    } else if (morph_space) {
         addWarning(SOP_MESSAGE, "No Blendshapes found. Ignoring morphspace deformation.");
     }
 
@@ -266,20 +265,16 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     std::string str_model;
     alglib::rbfmodel model;
     alglib::rbfreport report;
-    try 
-    {
+
+    try {
         alglib::rbfcreate(3, 3, model);
         alglib::rbfsetpoints(model, rbf_data_model);
-    }
-    catch (alglib::ap_error err)
-    {
+    } catch (alglib::ap_error err) {
         addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't build RBF model.");
         return error();
     }
-
     // Select RBF model:
-    switch(model_index)
-    {
+    switch(model_index) {
         case ALGLIB_MODEL_QNN:
             alglib::rbfsetalgoqnn(model, qcoef, zcoef);
             break;
@@ -287,10 +282,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             alglib::rbfsetalgomultilayer(model, radius, layers, lambda);
             break;
     }
-
     // Select RBF term:
-    switch(term_index)
-    {
+    switch(term_index) {
         case ALGLIB_TERM_LINEAR:
             alglib::rbfsetlinterm(model);
             break;
@@ -301,8 +294,6 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             alglib::rbfsetzeroterm(model);
             break;
     }
-
-
     // Finally build model:
     alglib::rbfbuildmodel(model, report);
     // Early quit if model wasn't built properly (singular matrix etc):
@@ -319,26 +310,15 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     // We won't use this model directly (unless sigle threaded path was chosen in compile time)
     // Instead we serialize it as send std::string to threads to be recreated there for 
     // further calculation.
-    alglib::rbfserialize(model, str_model);
+    // alglib::rbfserialize(model, str_model);
 
     // Here we determine which groups we have to work on.  We only
     // handle point groups.
     if (cookInputGroups(context) >= UT_ERROR_ABORT)
         return error();
 
-    // Execute mode directly:
-    // #ifdef NO_RBF_THREADS // we use only singlethread for now.
-
-    // Execute storage:
-    alglib::real_1d_array coord("[0,0,0]");
-    alglib::real_1d_array result("[0,0,0]");
-
-    GQ_Detail     gq_detail(gdp);
-    GA_PointGroup affected_group(*gdp);
-    GA_PointGroup partial_group(*gdp);
-
-    // GA_PointGroup::GA_PointGroup(const GU_Detail & gdp);
-    // UT_Vector3 affected_clr(.5,0,0);
+    // Add temp color to visualize affected regions
+    // FIXME: this doesn't work correctly.
     UT_Color affected_clr;
     GA_RWHandleV3 cd_h;
     if (getPicked()) {
@@ -348,14 +328,18 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         }
     }
 
+    // Helper distance attribute per target point ot closest rig point.
     GA_RWHandleF dist_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "distance", 3));
 
+    // Poor's man geodesic distance
+    GQ_Detail     gq_detail(gdp);
+    GA_PointGroup affected_group(*gdp);
+    GA_PointGroup partial_group(*gdp);
     GEO_PointTree gdp_tree, rest_tree;
     gdp_tree.build(gdp);
     rest_tree.build(rest_control_rig);
   
-    {
-        // Poor's man geodesic distance
+    { // Application of displacement. 
         GA_FOR_ALL_PTOFF(rest_control_rig, ptoff) { 
             const UT_Vector3 anchor_pos  = rest_control_rig->getPos3(ptoff);
             const GA_Index  target_idx   = gdp_tree.findNearestIdx(anchor_pos);
@@ -365,6 +349,9 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             partial_group.clear();
         }
 
+        // Execute storage:
+        alglib::real_1d_array coord("[0,0,0]");
+        alglib::real_1d_array result("[0,0,0]");
         for (GA_Size i=0; i<affected_group.entries(); ++i) 
         {
             const GA_Offset  target_ptoff = affected_group.findOffsetAtGroupIndex(i);
@@ -382,16 +369,16 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
             coord.setcontent(3, dp);
             alglib::rbfcalc(model, coord, result);
-            UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
+            UT_Vector3 displace(result[0], result[1], result[2]);
 
             float falloff = 1.f;
             if (dofalloff) {
-                falloff = SYSpow(distance / radius, falloffrate);
+                falloff = SYSpow(1.f - (distance/radius), falloffrate);
             }
             displace *= falloff;
 
             if (getPicked() && cd_h.isValid()) {
-                const float hue = SYSfit(1-falloff, 0.f, 1.f, 360.f, 200.f);
+                const float hue = SYSfit(1.f - falloff, 0.f, 1.f, 360.f, 200.f);
                 affected_clr.setHSV(hue, 1.f, 1.f);
                 cd_h.set(target_ptoff, affected_clr.rgb());
             }
