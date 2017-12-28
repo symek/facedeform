@@ -52,9 +52,12 @@ private:
     int     TANGENT(fpreal t)   { return evalInt("tangent", 0, t); }
     int     MAXEDGES(fpreal t)  { return evalInt("maxedges", 0, t); }
     int     MORPHSPACE(fpreal t){ return evalInt("morphspace", 0, t); }
+    int     DOCLAMPWEIGHT(fpreal t){  return evalInt("doclampweight", 0, t); }
     void    WEIGHTRANGE(fpreal t, UT_Vector2 & range) const {
         evalFloats("weightrange", range.data(), t);
     }
+    int     DOFALLOFF(fpreal t)    { return evalInt("dofalloff", 0, t); }
+    fpreal  FALLOFFRATE(fpreal t)  { return evalFloat("falloffrate", 0, t); }
 
     /// This is the group of geometry to be manipulated by this SOP and cooked
     /// by the method "cookInputGroups".

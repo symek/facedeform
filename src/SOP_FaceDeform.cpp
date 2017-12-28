@@ -13,6 +13,7 @@
 #include <stddef.h>
 #include <GQ/GQ_Detail.h>
 #include <GEO/GEO_PointTree.h>
+#include <UT/UT_Color.h>
 
 #include <Eigen/Geometry>
 #include <Eigen/StdVector>
@@ -80,9 +81,14 @@ const char * morphspace_help = "Projects deformation into subspace defined by bl
 const char * weightrange_help = "Clamps total blendshape weights, so that deformation \
  will be constrained strictly to blends' poses.";
 
+ const char * falloff_help = "This is exponent of distance ratio (distance / radius) \
+  with which displacement falls off.";
+
 static PRM_ChoiceList  modelMenu(PRM_CHOICELIST_SINGLE, modelChoices);
 static PRM_ChoiceList  termMenu(PRM_CHOICELIST_SINGLE,  termChoices);
-static PRM_Range       radiusRange(PRM_RANGE_PRM, 0, PRM_RANGE_PRM, 10);
+static PRM_Range       radiusRange(PRM_RANGE_RESTRICTED, 0.0, PRM_RANGE_UI, 10.0);
+static PRM_Range       falloffRange(PRM_RANGE_RESTRICTED, 0.0, PRM_RANGE_UI, 2.0);
+
 
 static PRM_Name names[] = {
     PRM_Name("model",   "Model"),
@@ -94,8 +100,11 @@ static PRM_Name names[] = {
     PRM_Name("lambda",  "Lambda"),
     PRM_Name("tangent", "Tangent space"),
     PRM_Name("morphspace","Blendshapes subspace"),
-    PRM_Name("maxedges","Max edges"),
-    PRM_Name("weightrange", "Weights range")
+    PRM_Name("maxedges",      "Max edges"),
+    PRM_Name("doclampweight", "Clamp weights"),
+    PRM_Name("weightrange", "Range"),
+    PRM_Name("dofalloff",   "Falloff dispacement"),
+    PRM_Name("falloffrate", "Falloff rate (exponent)"),
 };
 
 PRM_Template
@@ -106,13 +115,16 @@ SOP_FaceDeform::myTemplateList[] = {
     PRM_Template(PRM_ORD,   1, &names[1], 0, &termMenu, 0, 0, 0, 0, term_help),
     PRM_Template(PRM_FLT_J, 1, &names[2], PRMoneDefaults),
     PRM_Template(PRM_FLT_J, 1, &names[3], PRMfiveDefaults),
-    PRM_Template(PRM_FLT_J,	1, &names[4], PRMoneDefaults, 0, &radiusRange, 0, 0, 0, radius_help), // radius
+    PRM_Template(PRM_FLT_LOG,1, &names[4], PRMoneDefaults, 0, &radiusRange, 0, 0, 0, radius_help), // radius
     PRM_Template(PRM_INT_J, 1, &names[9], PRMfourDefaults, 0, 0, 0, 0, 0, maxedges_help), // maxedges
     PRM_Template(PRM_INT_J, 1, &names[5], PRMfourDefaults), // layers
     PRM_Template(PRM_FLT_J, 1, &names[6], PRMpointOneDefaults), // lambda
     PRM_Template(PRM_TOGGLE,1, &names[7], PRMzeroDefaults, 0, 0, 0, 0, 0, tangent_help), // tangent
     PRM_Template(PRM_TOGGLE,1, &names[8], PRMzeroDefaults, 0, 0, 0, 0, 0, morphspace_help), // morphspace
-    PRM_Template(PRM_FLT_J, 2, &names[10], ZeroOneDefaults, 0, 0, 0, 0, 0, weightrange_help),
+    PRM_Template(PRM_TOGGLE,1, &names[10], PRMzeroDefaults, 0, 0, 0, 0, 0, weightrange_help),
+    PRM_Template(PRM_FLT_J, 2, &names[11], ZeroOneDefaults, 0, 0, 0, 0, 0, weightrange_help),
+    PRM_Template(PRM_TOGGLE,1, &names[12], PRMzeroDefaults, 0, 0, 0, 0, 0),
+    PRM_Template(PRM_FLT_J, 1, &names[13], PRMoneDefaults, 0, &falloffRange, 0, 0, 0, falloff_help), // falloff rate
     PRM_Template(),
 };
 
@@ -198,11 +210,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     }
 
 
-    // Parms:
-    UT_Vector2 weightrange;
-    WEIGHTRANGE(t, weightrange);
+    // ALGLIB parms:
     UT_String modelName, termName;
-    MODEL(modelName); TERM(termName);
+    MODEL(modelName); 
+    TERM(termName);
     const int model_index  = atoi(modelName.buffer());
     const int term_index   = atoi(termName.buffer());
     const float qcoef  = SYSmax(0.1,  QCOEF(t));
@@ -210,10 +221,19 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     const float radius = SYSmax(0.01, RADIUS(t));
     const int   layers = SYSmax(1,    LAYERS(t));
     const float lambda = SYSmax(0.01, LAMBDA(t));
+
+    // Application parms:
     const int tangent_disp = TANGENT(t);
     const int morph_space  = MORPHSPACE(t);
     const int max_edges    = SYSmax(1, MAXEDGES(t));
     
+    UT_Vector2 weightrange;
+    const int doclampweight = DOCLAMPWEIGHT(t);
+    WEIGHTRANGE(t, weightrange);
+
+    const int   dofalloff   = DOFALLOFF(t);
+    const float falloffrate = FALLOFFRATE(t);
+
     if (error() >= UT_ERROR_ABORT)
         return error();
 
@@ -318,7 +338,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     GA_PointGroup partial_group(*gdp);
 
     // GA_PointGroup::GA_PointGroup(const GU_Detail & gdp);
-    UT_Vector3 affected_clr(.5,0,0);
+    // UT_Vector3 affected_clr(.5,0,0);
+    UT_Color affected_clr;
     GA_RWHandleV3 cd_h;
     if (getPicked()) {
         cd_h = GA_RWHandleV3(gdp->findDiffuseAttribute(GA_ATTRIB_POINT));
@@ -326,6 +347,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             cd_h = GA_RWHandleV3(gdp->addDiffuseAttribute(GA_ATTRIB_POINT));
         }
     }
+
+    GA_RWHandleF dist_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "distance", 3));
 
     GEO_PointTree gdp_tree, rest_tree;
     gdp_tree.build(gdp);
@@ -349,8 +372,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
             const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_idx);
             const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
+            const float      distance     = distance3d(target_pos, anchor_pos);
+            dist_h.set(target_ptoff, distance);
 
-            if (distance3d(target_pos, anchor_pos) > radius)
+            if (distance > radius)
                 continue;
 
             const double dp[3] = {target_pos.x(), target_pos.y(), target_pos.z()};
@@ -359,8 +384,16 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             alglib::rbfcalc(model, coord, result);
             UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
 
+            float falloff = 1.f;
+            if (dofalloff) {
+                falloff = SYSpow(distance / radius, falloffrate);
+            }
+            displace *= falloff;
+
             if (getPicked() && cd_h.isValid()) {
-                cd_h.set(target_ptoff, affected_clr);
+                const float hue = SYSfit(1-falloff, 0.f, 1.f, 360.f, 200.f);
+                affected_clr.setHSV(hue, 1.f, 1.f);
+                cd_h.set(target_ptoff, affected_clr.rgb());
             }
 
             if (do_tangent_disp) {
@@ -458,7 +491,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                     const float yd = blends_mat(3*ptidx + 1, col);
                     const float zd = blends_mat(3*ptidx + 2, col);
                     const float w  = weights(col)*3; //!!!???
-                    disp += UT_Vector3(xd, yd, zd) * SYSclamp(w, weightrange.x(), weightrange.y());
+                    const float cw = doclampweight == 1 ? \
+                        SYSclamp(w, weightrange.x(), weightrange.y()) : w; 
+                    disp += UT_Vector3(xd, yd, zd) * cw;
+
                 }
                 UT_Vector3 pos = rest_h.get(ptoff);// gdp->getPos3(ptoff);
                 gdp->setPos3(ptoff, pos + disp);
@@ -509,6 +545,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.
 
+    gdp->destroyAttribute(GA_ATTRIB_POINT, "distance");
 
     if (!myGroup || !myGroup->isEmpty())
         gdp->getP()->bumpDataId();
