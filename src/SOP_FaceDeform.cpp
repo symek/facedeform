@@ -22,6 +22,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <unordered_map>
+#include <memory>
 
 
 using namespace facedeform;
@@ -333,64 +335,92 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
     // Poor's man geodesic distance
     GQ_Detail     gq_detail(gdp);
-    GA_PointGroup affected_group(*gdp);
-    GA_PointGroup partial_group(*gdp);
     GEO_PointTree gdp_tree, rest_tree;
     gdp_tree.build(gdp);
     rest_tree.build(rest_control_rig);
   
-    { // Application of displacement. 
+    { 
+        typedef std::unique_ptr<GA_PointGroup> GA_PointGroupPtr;
+        typedef std::unordered_map<int, GA_PointGroupPtr> HandlerGroupMap;
+       
+        HandlerGroupMap handlers_map;
+        GA_PointGroup partial_group(*gdp);
+
+        GA_ROHandleI class_h(rest_control_rig->findIntTuple(GA_ATTRIB_POINT, "class", 1));
+        if(class_h.isInvalid()) {
+            GA_PointGroupPtr handle_group(new GA_PointGroup(*gdp));
+            handlers_map.insert(std::make_pair<int, \
+                GA_PointGroupPtr>(0, std::move(handle_group)));
+        }
+ 
         GA_FOR_ALL_PTOFF(rest_control_rig, ptoff) { 
             const UT_Vector3 anchor_pos  = rest_control_rig->getPos3(ptoff);
             const GA_Index  target_idx   = gdp_tree.findNearestIdx(anchor_pos);
             const GA_Offset target_ptoff = gdp->pointOffset(target_idx);
+
+            int handle_id = 0;
+            if (class_h.isValid()) {
+                handle_id = class_h.get(ptoff); 
+            }
+            if(handlers_map.find(handle_id) == handlers_map.end()) {
+                GA_PointGroupPtr handle_group(new GA_PointGroup(*gdp));
+                handlers_map.insert(std::pair<int, \
+                    GA_PointGroupPtr>(handle_id, std::move(handle_group)));  
+            }
             gq_detail.groupEdgePoints(target_ptoff, max_edges, partial_group);
-            affected_group.combine(&partial_group);
+            GA_PointGroup * handle_group = handlers_map[handle_id].get();
+            handle_group->combine(&partial_group);
             partial_group.clear();
         }
+        
 
         // Execute storage:
         alglib::real_1d_array coord("[0,0,0]");
         alglib::real_1d_array result("[0,0,0]");
-        for (GA_Size i=0; i<affected_group.entries(); ++i) 
-        {
-            const GA_Offset  target_ptoff = affected_group.findOffsetAtGroupIndex(i);
-            const UT_Vector3 target_pos   = gdp->getPos3(target_ptoff);
-            const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
-            const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_idx);
-            const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
-            const float      distance     = distance3d(target_pos, anchor_pos);
-            dist_h.set(target_ptoff, distance);
+        HandlerGroupMap::const_iterator it;
+        for (it = handlers_map.begin(); it != handlers_map.end(); it++) {
+            const GA_PointGroupPtr & affected_group = it->second;
+            for (GA_Size i=0; i<affected_group->entries(); ++i)  {
+                const GA_Offset  target_ptoff = affected_group->findOffsetAtGroupIndex(i);
+                const UT_Vector3 target_pos   = gdp->getPos3(target_ptoff);
+                const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
+                const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_idx);
+                const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
+                const float      distance     = distance3d(target_pos, anchor_pos);
+                dist_h.set(target_ptoff, distance);
 
-            if (distance > radius)
-                continue;
+                if (distance > radius)
+                    continue;
 
-            const double dp[3] = {target_pos.x(), target_pos.y(), target_pos.z()};
+                const double dp[3] = {target_pos.x(), target_pos.y(), target_pos.z()};
 
-            coord.setcontent(3, dp);
-            alglib::rbfcalc(model, coord, result);
-            UT_Vector3 displace(result[0], result[1], result[2]);
+                coord.setcontent(3, dp);
+                alglib::rbfcalc(model, coord, result);
+                UT_Vector3 displace(result[0], result[1], result[2]);
 
-            float falloff = 1.f;
-            if (dofalloff) {
-                falloff = SYSpow(1.f - (distance/radius), falloffrate);
+                float falloff = 1.f;
+                if (dofalloff) {
+                    falloff = SYSpow(1.f - (distance/radius), falloffrate);
+                }
+                displace *= falloff;
+
+                if (getPicked() && cd_h.isValid()) {
+                    float hue = SYSfit(1.f - falloff, 0.f, 1.f, 360.f, 200.f);
+                    uint seed = static_cast<uint>(it->first);
+                    hue += SYSfastRandom(seed)*10;
+                    affected_clr.setHSV(hue, 1.f, 1.f);
+                    cd_h.set(target_ptoff, affected_clr.rgb());
+                }
+
+                if (do_tangent_disp) {
+                    UT_Vector3 u = tangentu_h.get(ptoff); 
+                    UT_Vector3 v = tangentv_h.get(ptoff);
+                    UT_Vector3 n = normals_h.get(ptoff);
+                    u.normalize(); v.normalize(); n.normalize();
+                    project_to_tangents(u, v, n, displace);
+                }
+                gdp->setPos3(target_ptoff, target_pos + displace);
             }
-            displace *= falloff;
-
-            if (getPicked() && cd_h.isValid()) {
-                const float hue = SYSfit(1.f - falloff, 0.f, 1.f, 360.f, 200.f);
-                affected_clr.setHSV(hue, 1.f, 1.f);
-                cd_h.set(target_ptoff, affected_clr.rgb());
-            }
-
-            if (do_tangent_disp) {
-                UT_Vector3 u = tangentu_h.get(ptoff); 
-                UT_Vector3 v = tangentv_h.get(ptoff);
-                UT_Vector3 n = normals_h.get(ptoff);
-                u.normalize(); v.normalize(); n.normalize();
-                project_to_tangents(u, v, n, displace);
-            }
-            gdp->setPos3(target_ptoff, target_pos + displace);
         }
     }
 
