@@ -321,7 +321,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
     // Add temp color to visualize affected regions
     // FIXME: this doesn't work correctly.
-    UT_Color affected_clr;
+    UT_Color affected_clr(UT_RGB, 1.f,1.f,1.f);
     GA_RWHandleV3 cd_h;
     if (getPicked()) {
         cd_h = GA_RWHandleV3(gdp->findDiffuseAttribute(GA_ATTRIB_POINT));
@@ -377,52 +377,68 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         // Execute storage:
         alglib::real_1d_array coord("[0,0,0]");
         alglib::real_1d_array result("[0,0,0]");
+
+        UT_ValArray<GA_Index> anchor_array;
+
+        const float radius2 = radius*radius;
+        GU_RayIntersect handler_ray_cache;
+        GU_MinInfo closest_pt_info(radius2, 0.f);
+        handler_ray_cache.init(rest_control_rig);
+
         HandlerGroupMap::const_iterator it;
         for (it = handlers_map.begin(); it != handlers_map.end(); it++) {
             const GA_PointGroupPtr & affected_group = it->second;
             for (GA_Size i=0; i<affected_group->entries(); ++i)  {
                 const GA_Offset  target_ptoff = affected_group->findOffsetAtGroupIndex(i);
                 const UT_Vector3 target_pos   = gdp->getPos3(target_ptoff);
-                const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
-                const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_idx);
-                const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
-                const float distance          = distance3d(target_pos, anchor_pos);
+                float distance = 1.f;
+                #if 0
+                if (handler_ray_cache.minimumPoint(target_pos, closest_pt_info)) {
+                    UT_Vector4 anchor_pos;
+                    closest_pt_info.prim->evaluateInteriorPoint(anchor_pos, \
+                        closest_pt_info.u2, closest_pt_info.v2);
+                    // const UT_Vector3 anchor_pos = closest_pt_info.prim->baryCenter();
+                    distance =  distance3d(target_pos, anchor_pos);
+                }
+                    const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
+                    const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_idx);
+                    const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
+                    const int found  = rest_tree.findAllCloseIdx(target_pos, radius, anchor_array);
+                    float distance = 0;
+                    if (found) {
+                        for (int i=0; i<anchor_array.size(); ++i) {
+                            const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_array(i));
+                            const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
+                            distance     += distance3d(target_pos, anchor_pos);
+                        }
+                        distance /= anchor_array.size();
+                        anchor_array.clear();
+                    }
+                #else
+                #endif
 
-                // UT_ValArray<GA_Index> anchor_array;
-                // const int found  = rest_tree.findAllCloseIdx(target_pos, radius, anchor_array);
-                // float distance = 0;
-                // if (found) {
-                //     for (int i=0; i<anchor_array.size(); ++i) {
-                //         const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_array(i));
-                //         const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
-                //         distance     += distance3d(target_pos, anchor_pos);
-                //     }
-                //     distance /= anchor_array.size();
-                // }
+                float falloff = 1.f;
+                if (dofalloff) {
+                    falloff = SYSmin(distance/radius, 1.f);
+                    falloff = SYSpow(1.f - falloff , falloffrate);
+                }
 
-                if (distance > radius)
+                fd_falloff_h.set(target_ptoff, falloff);
+
+                if (getPicked() && cd_h.isValid()) {
+                    float hue = SYSfit(falloff, 0.f, 1.f, 200.f,  360.f);
+                    affected_clr.setHSV(hue, 1.f, 1.f);
+                    cd_h.set(target_ptoff, affected_clr.rgb());
+                }
+
+                if (distance > radius) 
                     continue;
-
+                
                 const double dp[3] = {target_pos.x(), target_pos.y(), target_pos.z()};
 
                 coord.setcontent(3, dp);
                 alglib::rbfcalc(model, coord, result);
                 UT_Vector3 displace(result[0], result[1], result[2]);
-
-                float falloff = 1.f;
-                if (dofalloff) {
-                    falloff = SYSpow(1.f - (distance/radius), falloffrate);
-                }
-                displace *= falloff;
-                fd_falloff_h.set(target_ptoff, falloff);
-
-                if (getPicked() && cd_h.isValid()) {
-                    float hue = SYSfit(1.f - falloff, 0.f, 1.f, 360.f, 200.f);
-                    // uint seed = static_cast<uint>(it->first);
-                    // hue += SYSfastRandom(seed)*10;
-                    affected_clr.setHSV(hue, 1.f, 1.f);
-                    cd_h.set(target_ptoff, affected_clr.rgb());
-                }
 
                 if (do_tangent_disp) {
                     UT_Vector3 u = tangentu_h.get(ptoff); 
@@ -431,6 +447,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                     u.normalize(); v.normalize(); n.normalize();
                     project_to_tangents(u, v, n, displace);
                 }
+
+                displace *= falloff;
                 gdp->setPos3(target_ptoff, target_pos + displace);
             }
         }
