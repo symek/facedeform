@@ -331,7 +331,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     }
 
     // Helper distance attribute per target point ot closest rig point.
-    GA_RWHandleF dist_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "distance", 3));
+    GA_RWHandleF fd_falloff_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_falloff", 1));
 
     // Poor's man geodesic distance
     GQ_Detail     gq_detail(gdp);
@@ -386,8 +386,19 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                 const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
                 const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_idx);
                 const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
-                const float      distance     = distance3d(target_pos, anchor_pos);
-                dist_h.set(target_ptoff, distance);
+                const float distance          = distance3d(target_pos, anchor_pos);
+
+                // UT_ValArray<GA_Index> anchor_array;
+                // const int found  = rest_tree.findAllCloseIdx(target_pos, radius, anchor_array);
+                // float distance = 0;
+                // if (found) {
+                //     for (int i=0; i<anchor_array.size(); ++i) {
+                //         const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_array(i));
+                //         const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
+                //         distance     += distance3d(target_pos, anchor_pos);
+                //     }
+                //     distance /= anchor_array.size();
+                // }
 
                 if (distance > radius)
                     continue;
@@ -403,11 +414,12 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                     falloff = SYSpow(1.f - (distance/radius), falloffrate);
                 }
                 displace *= falloff;
+                fd_falloff_h.set(target_ptoff, falloff);
 
                 if (getPicked() && cd_h.isValid()) {
                     float hue = SYSfit(1.f - falloff, 0.f, 1.f, 360.f, 200.f);
-                    uint seed = static_cast<uint>(it->first);
-                    hue += SYSfastRandom(seed)*10;
+                    // uint seed = static_cast<uint>(it->first);
+                    // hue += SYSfastRandom(seed)*10;
                     affected_clr.setHSV(hue, 1.f, 1.f);
                     cd_h.set(target_ptoff, affected_clr.rgb());
                 }
