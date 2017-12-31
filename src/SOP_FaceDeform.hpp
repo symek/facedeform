@@ -101,6 +101,7 @@ private:
         evalFloats("weightrange", range.data(), t);
     }
     int     DOFALLOFF(fpreal t)    { return evalInt("dofalloff", 0, t); }
+    fpreal  FALLOFFRADIUS(fpreal t)    { return evalFloat("falloffradius", 0, t); }
     fpreal  FALLOFFRATE(fpreal t)  { return evalFloat("falloffrate", 0, t); }
 
     /// This is the group of geometry to be manipulated by this SOP and cooked

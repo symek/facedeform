@@ -106,6 +106,7 @@ static PRM_Name names[] = {
     PRM_Name("doclampweight", "Clamp weights"),
     PRM_Name("weightrange", "Range"),
     PRM_Name("dofalloff",   "Falloff"),
+    PRM_Name("falloffradius", "Falloff radius"),
     PRM_Name("falloffrate", "Falloff rate (exponent)"),
 };
 
@@ -117,7 +118,7 @@ SOP_FaceDeform::myTemplateList[] = {
     PRM_Template(PRM_ORD,   1, &names[1], 0, &termMenu, 0, 0, 0, 0, term_help),
     PRM_Template(PRM_FLT_J, 1, &names[2], PRMoneDefaults),
     PRM_Template(PRM_FLT_J, 1, &names[3], PRMfiveDefaults),
-    PRM_Template(PRM_FLT_LOG,1, &names[4], PRMoneDefaults, 0, &radiusRange, 0, 0, 0, radius_help), // radius
+    PRM_Template(PRM_FLT_LOG,1,&names[4], PRMoneDefaults, 0, &radiusRange, 0, 0, 0, radius_help), // radius
     PRM_Template(PRM_INT_J, 1, &names[9], PRMfourDefaults, 0, 0, 0, 0, 0, maxedges_help), // maxedges
     PRM_Template(PRM_INT_J, 1, &names[5], PRMfourDefaults), // layers
     PRM_Template(PRM_FLT_J, 1, &names[6], PRMpointOneDefaults), // lambda
@@ -126,7 +127,8 @@ SOP_FaceDeform::myTemplateList[] = {
     PRM_Template(PRM_TOGGLE,1, &names[10], PRMzeroDefaults, 0, 0, 0, 0, 0, weightrange_help),
     PRM_Template(PRM_FLT_J, 2, &names[11], ZeroOneDefaults, 0, 0, 0, 0, 0, weightrange_help),
     PRM_Template(PRM_TOGGLE,1, &names[12], PRMzeroDefaults, 0, 0, 0, 0, 0),
-    PRM_Template(PRM_FLT_J, 1, &names[13], PRMoneDefaults, 0, &falloffRange, 0, 0, 0, falloff_help), // falloff rate
+    PRM_Template(PRM_FLT_LOG,1,&names[13], PRMoneDefaults, 0, &radiusRange, 0, 0, 0, radius_help), // falloffradius
+    PRM_Template(PRM_FLT_J, 1, &names[14], PRMoneDefaults, 0, &falloffRange, 0, 0, 0, falloff_help), // falloff rate
     PRM_Template(),
 };
 
@@ -210,8 +212,9 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     const int doclampweight = DOCLAMPWEIGHT(t);
     WEIGHTRANGE(t, weightrange);
 
-    const int   dofalloff   = DOFALLOFF(t);
-    const float falloffrate = FALLOFFRATE(t);
+    const int   dofalloff     = DOFALLOFF(t);
+    const float falloffrate   = FALLOFFRATE(t);
+    const float falloffradius = FALLOFFRADIUS(t);
 
     if (error() >= UT_ERROR_ABORT)
         return error();
@@ -321,8 +324,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
     // Add temp color to visualize affected regions
     // FIXME: this doesn't work correctly.
-    UT_Color affected_clr(UT_RGB, 1.f,1.f,1.f);
     GA_RWHandleV3 cd_h;
+    UT_Color affected_clr(UT_RGB, 1.f,1.f,1.f);
     if (getPicked()) {
         cd_h = GA_RWHandleV3(gdp->findDiffuseAttribute(GA_ATTRIB_POINT));
         if (!cd_h.isValid()) {
@@ -373,17 +376,13 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             partial_group.clear();
         }
         
-
         // Execute storage:
         alglib::real_1d_array coord("[0,0,0]");
         alglib::real_1d_array result("[0,0,0]");
 
-        UT_ValArray<GA_Index> anchor_array;
-
-        const float radius2 = radius*radius;
-        GU_RayIntersect handler_ray_cache;
-        GU_MinInfo closest_pt_info(radius2, 0.f);
-        handler_ray_cache.init(rest_control_rig);
+        GU_RayIntersect handler_ray_cache(rest_control_rig);
+        const float radius_sqrt = radius*radius;
+        GU_MinInfo closest_pt_info(radius_sqrt);
 
         HandlerGroupMap::const_iterator it;
         for (it = handlers_map.begin(); it != handlers_map.end(); it++) {
@@ -391,47 +390,32 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             for (GA_Size i=0; i<affected_group->entries(); ++i)  {
                 const GA_Offset  target_ptoff = affected_group->findOffsetAtGroupIndex(i);
                 const UT_Vector3 target_pos   = gdp->getPos3(target_ptoff);
-                float distance = 1.f;
-                #if 0
-                if (handler_ray_cache.minimumPoint(target_pos, closest_pt_info)) {
-                    UT_Vector4 anchor_pos;
-                    closest_pt_info.prim->evaluateInteriorPoint(anchor_pos, \
-                        closest_pt_info.u2, closest_pt_info.v2);
-                    // const UT_Vector3 anchor_pos = closest_pt_info.prim->baryCenter();
-                    distance =  distance3d(target_pos, anchor_pos);
-                }
-                    const GA_Index   anchor_idx   = rest_tree.findNearestIdx(target_pos);
-                    const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_idx);
-                    const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
-                    const int found  = rest_tree.findAllCloseIdx(target_pos, radius, anchor_array);
-                    float distance = 0;
-                    if (found) {
-                        for (int i=0; i<anchor_array.size(); ++i) {
-                            const GA_Offset  anchor_ptoff = rest_control_rig->pointOffset(anchor_array(i));
-                            const UT_Vector3 anchor_pos   = rest_control_rig->getPos3(anchor_ptoff); 
-                            distance     += distance3d(target_pos, anchor_pos);
-                        }
-                        distance /= anchor_array.size();
-                        anchor_array.clear();
-                    }
-                #else
-                #endif
 
-                float falloff = 1.f;
+                float distance_sqrt = 0.000001f;
+                float falloff  = 1.f;
+                
                 if (dofalloff) {
-                    falloff = SYSmin(distance/radius, 1.f);
-                    falloff = SYSpow(1.f - falloff , falloffrate);
+                    if (handler_ray_cache.minimumPoint(target_pos, closest_pt_info)) {
+                        UT_Vector4 anchor_pos;
+                        closest_pt_info.prim->evaluateInteriorPoint(anchor_pos, \
+                            closest_pt_info.u1, closest_pt_info.v1);
+                        // const UT_Vector3 anchor_pos = closest_pt_info.prim->baryCenter();
+                        distance_sqrt = closest_pt_info.d;// distance3d(target_pos, anchor_pos);
+                        closest_pt_info.init(); // reset MinInfo, otherwise it won't work next run.
+                    }
+                    
+                    falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
+                    falloff = SYSpow(1.f - falloff, falloffrate);
+                    fd_falloff_h.set(target_ptoff, falloff);
                 }
-
-                fd_falloff_h.set(target_ptoff, falloff);
 
                 if (getPicked() && cd_h.isValid()) {
-                    float hue = SYSfit(falloff, 0.f, 1.f, 200.f,  360.f);
+                    float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 360.f);
                     affected_clr.setHSV(hue, 1.f, 1.f);
                     cd_h.set(target_ptoff, affected_clr.rgb());
                 }
 
-                if (distance > radius) 
+                if (distance_sqrt > radius_sqrt) 
                     continue;
                 
                 const double dp[3] = {target_pos.x(), target_pos.y(), target_pos.z()};
