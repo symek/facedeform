@@ -399,9 +399,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                         UT_Vector4 anchor_pos;
                         closest_pt_info.prim->evaluateInteriorPoint(anchor_pos, \
                             closest_pt_info.u1, closest_pt_info.v1);
-                        // const UT_Vector3 anchor_pos = closest_pt_info.prim->baryCenter();
-                        distance_sqrt = closest_pt_info.d;// distance3d(target_pos, anchor_pos);
-                        closest_pt_info.init(); // reset MinInfo, otherwise it won't work next run.
+                        distance_sqrt = closest_pt_info.d;
+                        closest_pt_info.init(); // reset MinInfo, otherwise it won't work on next run.
                     }
                     
                     falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
@@ -496,44 +495,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
     }
 
-    // Execute model
-    // GA_FOR_ALL_GROUP_PTOFF(gdp, myGroup, ptoff)
-    // {
-    //     const UT_Vector3 pos = gdp->getPos3(ptoff);
-    //     const double dp[3]   = {pos.x(), pos.y(), pos.z()};
-    //     coord.setcontent(3, dp);
-    //     alglib::rbfcalc(model, coord, result);
-    //     UT_Vector3 displace = UT_Vector3(result[0], result[1], result[2]);
-
-    //     if (do_tangent_disp)
-    //     {
-    //         UT_Vector3 u = tangentu_h.get(ptoff); 
-    //         UT_Vector3 v = tangentv_h.get(ptoff);
-    //         UT_Vector3 n = normals_h.get(ptoff);
-    //         u.normalize(); v.normalize(); n.normalize();
-    //         UT_Matrix3  b(u.x(), u.y(), u.z(),
-    //                       v.x(), v.y(), v.z(),
-    //                       n.x(), n.y(), n.z());
-
-    //         b = b.transposedCopy() * b;
-    //         UT_Vector3 a1(u * b); a1.normalize();
-    //         UT_Vector3 a2(v * b); a2.normalize();
-    //         const float da1 = displace.dot(a1);
-    //         const float da2 = displace.dot(a2);
-    //         displace        = UT_Vector3(a1 * da1 + a2 * da2);
-    //     }
-
-    //     gdp->setPos3(ptoff, pos + displace);
-    // }
-
-
-    // #else
-
     // or try it in parallel (no groups support yet)
     // const GA_Range range(gdp->getPointRange());
     // rbfDeformThreaded(range, str_model, do_tangent_disp, gdp);
 
-    // #endif // end of NO_RBF_THREADS
 
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.

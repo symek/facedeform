@@ -34,6 +34,8 @@ set( library_name SOP_FaceDeform )
 
 add_library( ${library_name} SHARED
 	${ALGLIB_SOURCES}
+	src/dbse.cpp
+	src/dbse.hpp
     src/SOP_FaceDeform.cpp
     src/SOP_FaceDeform.hpp
 )
