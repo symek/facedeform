@@ -16,6 +16,7 @@
 
 #include <Eigen/Geometry>
 #include <Eigen/StdVector>
+#include "dbse.hpp"
 #include "SOP_FaceDeform.hpp"
 
 #include "stdafx.h"
@@ -219,9 +220,6 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     if (error() >= UT_ERROR_ABORT)
         return error();
 
-
-
-
     const int rest_npoints = rest_control_rig->getNumPoints();
     alglib::real_2d_array rbf_data_model;
     rbf_data_model.setlength(rest_npoints, 6);
@@ -257,11 +255,31 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             and N attribute to allow tangent displacement.");
     }
 
-    // In case we do blendspace projection we need to store rest P.
+
+    // Initial work for morph space deformation.
+    // we need to store rest P.
     if (morph_space && (nConnectedInputs() > 3)) {
-         GA_Attribute * rest = gdp->addRestAttribute(GA_ATTRIB_POINT);
-         const GA_Attribute * pos = gdp->getP();
-         rest->replace(*pos);
+        GA_Attribute * rest = gdp->addRestAttribute(GA_ATTRIB_POINT);
+        const GA_Attribute * pos = gdp->getP();
+        rest->replace(*pos);
+        
+        // Gather blendshapes
+        DBSE::BlendShapesV shapes;
+        for (unsigned i=3; i < nConnectedInputs(); ++i) {
+            const GU_Detail* shape = inputGeo(i);
+            if (shape->getNumPoints() != gdp->getNumPoints()) {
+                addWarning(SOP_ERR_MISMATCH_POINT, \
+                    "Some blendshapes doesn't match rest pose point count!");
+                continue;
+            }
+            shapes.push_back(shape);
+        }
+
+        // Initialize DBSE matrix 
+        if (!myDBSE.init(this, shapes)) {
+             addWarning(SOP_MESSAGE, "Can't proceed with morph space deformation. Ingoring it.");
+        }
+
     } else if (morph_space) {
         addWarning(SOP_MESSAGE, "No Blendshapes found. Ignoring morphspace deformation.");
     }
@@ -439,59 +457,33 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
 
     // 
-    // Any input above 2 is considered as morph targets...
-    if (morph_space && (nConnectedInputs() > 3) )
+    // Any inputs above 2 is considered as morph targets...
+    if (morph_space && (nConnectedInputs() > 3) && myDBSE.isInitialized() )
     {
-        const GA_Size npoints = gdp->getNumPoints();
-        GA_ROHandleV3 rest_h(gdp, GA_ATTRIB_POINT, "rest");
-        std::vector<const GU_Detail*> shapes;
-        for (unsigned i=3; i < nConnectedInputs(); ++i) {
-            const GU_Detail* shape = inputGeo(i);
-            if (shape->getNumPoints() != npoints) {
-                addWarning(SOP_ERR_MISMATCH_POINT, \
-                    "Some blendshapes doesn't match rest pose point count!");
-                continue;
-            }
-            shapes.push_back(shape);
-        }
-
-        Eigen::MatrixXd blends_mat(npoints*3, shapes.size());
-        Eigen::VectorXd delta(npoints*3);
-        create_blendshape_matrix(gdp, shapes, blends_mat, delta);
-        // Orthonormalize blends
-        Eigen::HouseholderQR<Eigen::MatrixXd> orthonormal_mat(blends_mat);
-        // scalar product of delta and Q's columns:
-        Eigen::MatrixXd weights_mat = delta.asDiagonal() * orthonormal_mat.matrixQR();
-        // Get weights out of this: 
-        Eigen::VectorXd weights = weights_mat.colwise().sum();
-        // copy blendshape's weights into detail attribute
-        GA_Attribute * w_attrib = gdp->addFloatArray(GA_ATTRIB_DETAIL, "weights", 1);
-        const GA_AIFNumericArray * w_aif = w_attrib->getAIFNumericArray();
-        UT_FprealArray weights_array(shapes.size());
-        for(int i=0;i<shapes.size(); ++i) {
-            weights_array.append(weights(i));
-        }
-        w_aif->set(w_attrib, 0, weights_array);
-        w_attrib->bumpDataId();
-
-        {
+        const GA_Attribute * rest = gdp->findFloatTuple(GA_ATTRIB_POINT, "rest", 3);
+        GA_ROHandleV3 rest_h(rest);
+        if(!myDBSE.compute(rest)) {
+            addWarning(SOP_MESSAGE, "Can't compute morph space deformation. Ingoring it.");
+        } else {
             GA_FOR_ALL_PTOFF(gdp, ptoff) {
                 const GA_Size ptidx = gdp->pointIndex(ptoff);
-                UT_Vector3 disp(0,0,0);
-                for(int col=0; col<shapes.size(); ++col) {
-                    const float xd = blends_mat(3*ptidx + 0, col);
-                    const float yd = blends_mat(3*ptidx + 1, col);
-                    const float zd = blends_mat(3*ptidx + 2, col);
-                    const float w  = weights(col)*3; //!!!???
-                    const float cw = doclampweight == 1 ? \
-                        SYSclamp(w, weightrange.x(), weightrange.y()) : w; 
-                    disp += UT_Vector3(xd, yd, zd) * cw;
-
-                }
-                UT_Vector3 pos = rest_h.get(ptoff);// gdp->getPos3(ptoff);
-                gdp->setPos3(ptoff, pos + disp);
+                UT_Vector3 displace(0,0,0);
+                myDBSE.displaceVector(ptidx, displace);
+                UT_Vector3 pos = rest_h.get(ptoff);
+                gdp->setPos3(ptoff, pos + displace);
             }
         }
+
+        // TODO 
+        // copy blendshape's weights into detail attribute
+        // GA_Attribute * w_attrib = gdp->addFloatArray(GA_ATTRIB_DETAIL, "weights", 1);
+        // const GA_AIFNumericArray * w_aif = w_attrib->getAIFNumericArray();
+        // UT_FprealArray weights_array(shapes.size());
+        // for(int i=0;i<shapes.size(); ++i) {
+        //     weights_array.append(weights(i));
+        // }
+        // w_aif->set(w_attrib, 0, weights_array);
+        // w_attrib->bumpDataId();
 
     }
 

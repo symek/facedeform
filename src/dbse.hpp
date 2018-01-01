@@ -6,22 +6,27 @@ namespace facedeform {
 
 class DBSE 
 {
+public:
     typedef std::vector<const GU_Detail*> BlendShapesV;
-public: DBSE();
-        bool init(const SOP_Node * node, const BlendShapesV & shapes);
-        bool isInitialized() { return initialized; }
-        bool build();
-        bool isBuilt() { return built; }
 private:
-    const SOP_Node * mySop;
+    typedef Eigen::HouseholderQR<Eigen::MatrixXd> QRMatrix;
+public: DBSE() {};
+        ~DBSE();
+        bool init(const SOP_Node * node, const BlendShapesV & shapes);
+        bool isInitialized() { return myInitialized; }
+        bool compute(const GA_Attribute * rest_attrib);
+        bool isComputed() { return myComputed; }
+        void displaceVector(const GA_Index & ptidx, UT_Vector3 & disp);
+private:
     uint myNpoints = 0;
-    BlendShapesV myBlendShapesV;
+    bool myInitialized = false;
+    bool myComputed = false;
+    const SOP_Node * mySop;
+
     Eigen::MatrixXd myBlendShapesM;
+    QRMatrix myQrMatrix;
     Eigen::VectorXd myDeltaV;
     Eigen::VectorXd myWeights;
-    bool initialized = false;
-    bool built = false;
-
 };
 
 

@@ -1,5 +1,5 @@
 #pragma once 
-
+#include "dbse.hpp"
 #include <GA/GA_SplittableRange.h>
 #include <GA/GA_Range.h>
 #include <GA/GA_PageIterator.h>
@@ -34,35 +34,35 @@ inline void project_to_tangents(UT_Vector3 & u, UT_Vector3 & v,
     displace = UT_Vector3(a1 * da1 + a2 * da2); 
 }
 
-inline void create_blendshape_matrix(const GU_Detail * gdp, std::vector<const GU_Detail*> & shapes,
-                                   Eigen::MatrixXd & blends_mat, Eigen::VectorXd & delta) 
-{
-    GA_ROHandleV3 rest_h(gdp, GA_ATTRIB_POINT, "rest");
-    unsigned col = 0;
-    GA_Offset ptoff;
-    std::vector<const GU_Detail*>::const_iterator it;
-    for(it=shapes.begin(); it != shapes.end(); it++, ++col) {
-        const GU_Detail * shape = *it;
-        GA_FOR_ALL_PTOFF(shape, ptoff) {
-            const UT_Vector3 rest_pos  = rest_h.get(ptoff);
-            const GA_Index   rest_itx  = gdp->pointIndex(ptoff);
-            const GA_Offset  shape_off = shape->pointOffset(rest_itx);
-            const UT_Vector3 shape_pos = shape->getPos3(shape_off);
-            const UT_Vector3 shape_delta(shape_pos - rest_pos);
-            blends_mat(3*rest_itx + 0, col) = shape_delta.x();
-            blends_mat(3*rest_itx + 1, col) = shape_delta.y(); 
-            blends_mat(3*rest_itx + 2, col) = shape_delta.z();
-        }
-    }
-    GA_FOR_ALL_PTOFF(gdp, ptoff) {
-        const GA_Index ptidx  = gdp->pointIndex(ptoff);
-        const UT_Vector3 pos  = gdp->getPos3(ptoff);
-        const UT_Vector3 rest = rest_h.get(ptoff);
-        delta(3*ptidx + 0) = pos.x() - rest.x();
-        delta(3*ptidx + 1) = pos.y() - rest.y();
-        delta(3*ptidx + 2) = pos.z() - rest.z();
-    }
-}
+// inline void create_blendshape_matrix(const GU_Detail * gdp, std::vector<const GU_Detail*> & shapes,
+//                                    Eigen::MatrixXd & blends_mat, Eigen::VectorXd & delta) 
+// {
+//     GA_ROHandleV3 rest_h(gdp, GA_ATTRIB_POINT, "rest");
+//     unsigned col = 0;
+//     GA_Offset ptoff;
+//     std::vector<const GU_Detail*>::const_iterator it;
+//     for(it=shapes.begin(); it != shapes.end(); it++, ++col) {
+//         const GU_Detail * shape = *it;
+//         GA_FOR_ALL_PTOFF(shape, ptoff) {
+//             const UT_Vector3 rest_pos  = rest_h.get(ptoff);
+//             const GA_Index   rest_itx  = gdp->pointIndex(ptoff);
+//             const GA_Offset  shape_off = shape->pointOffset(rest_itx);
+//             const UT_Vector3 shape_pos = shape->getPos3(shape_off);
+//             const UT_Vector3 shape_delta(shape_pos - rest_pos);
+//             blends_mat(3*rest_itx + 0, col) = shape_delta.x();
+//             blends_mat(3*rest_itx + 1, col) = shape_delta.y(); 
+//             blends_mat(3*rest_itx + 2, col) = shape_delta.z();
+//         }
+//     }
+//     GA_FOR_ALL_PTOFF(gdp, ptoff) {
+//         const GA_Index ptidx  = gdp->pointIndex(ptoff);
+//         const UT_Vector3 pos  = gdp->getPos3(ptoff);
+//         const UT_Vector3 rest = rest_h.get(ptoff);
+//         delta(3*ptidx + 0) = pos.x() - rest.x();
+//         delta(3*ptidx + 1) = pos.y() - rest.y();
+//         delta(3*ptidx + 2) = pos.z() - rest.z();
+//     }
+// }
 
 class SOP_FaceDeform : public SOP_Node
 {
@@ -107,6 +107,9 @@ private:
     /// This is the group of geometry to be manipulated by this SOP and cooked
     /// by the method "cookInputGroups".
     const GA_PointGroup *myGroup;
+
+    /// Direct Blend shape edit class (morph space deformation)
+    DBSE myDBSE;
 };
 
 // class op_RBFDeform {
