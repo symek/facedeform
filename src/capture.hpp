@@ -16,17 +16,23 @@ class ProximityCapture
     typedef std::unique_ptr<GA_PointGroup> GA_PointGroupPtr;
     typedef std::unique_ptr<GQ_Detail>     GQ_DetailPtr;
     typedef std::unordered_map<int, GA_PointGroupPtr> HandlerGroupMap;
+    typedef std::unique_ptr<GA_ATINumeric> GA_ATINumericPtr;
 public: 
         bool init(GU_Detail * mesh, const GU_Detail * rig);
         bool isInitialized() const { return m_init; }  
         bool capture( const int & max_edges, const float & radius, const int & dofalloff, const float & falloffrate);
-        bool isCaptured() const { return m_capture; }  
+        bool isCaptured() const { return m_capture; }
+        // TODO: We might check it first, not just blindly return nulls. 
+        GA_Attribute * getDistanceAttribute() const  { return dist_a.get(); }
+        GA_Attribute * getColorAttribute()    const  { return cd_a.get(); }
 private:
         int  findIslands(const int & max_edges);
     bool m_init       = false;
     bool m_capture    = false;
     int  init_counter    = 0;
     int  capture_counter = 0;
+    GA_ATINumericPtr  cd_a   = nullptr;
+    GA_ATINumericPtr  dist_a = nullptr; 
     GU_Detail       * m_gdp;
     const GU_Detail * m_rig;
     GQ_DetailPtr      m_gq_detail;

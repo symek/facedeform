@@ -27,16 +27,24 @@ bool ProximityCapture::init(GU_Detail * mesh, const GU_Detail * rest_rig)  {
     }
     m_gq_detail.reset(nullptr);
     m_gq_detail = std::move(GQ_DetailPtr(new GQ_Detail(m_gdp)));
+    // Helper detached attrbis. 
+    cd_a.reset(nullptr);
+    dist_a.reset(nullptr);
 
     // TODO: We should create detached attribute and copy it into Cd outside this class.
+    #if 0
     GA_Attribute * cd_a = m_gdp->findDiffuseAttribute(GA_ATTRIB_POINT);
     if (!cd_a) {
         cd_a = m_gdp->addDiffuseAttribute(GA_ATTRIB_POINT);
     }
      // Helper distance attribute per target point ot closest rig point
-    GA_Attribute * fd_dist_a    = m_gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_distance", 1);
-
-    if (!cd_a || !fd_dist_a /*more conditions related to trees and ray cache*/) {
+    GA_Attribute * dist_a    = m_gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_distance", 1);
+    #else
+        cd_a.reset(m_gdp->createDetachedTupleAttribute(GA_ATTRIB_POINT, GA_STORE_REAL32, 3));
+        dist_a.reset(m_gdp->createDetachedTupleAttribute(GA_ATTRIB_POINT, GA_STORE_REAL32, 1));
+    #endif
+    
+    if (!cd_a || !dist_a /*more conditions related to trees and ray cache*/) {
         m_init = false; 
         m_capture = false;  
         init_counter = 0;
@@ -65,8 +73,8 @@ bool ProximityCapture::capture(const int & max_edges, const float & radius,
     }
 
     UT_Color affected_clr(UT_RGB, 1.f,1.f,1.f);
-    GA_RWHandleV3 cd_h(m_gdp->findDiffuseAttribute(GA_ATTRIB_POINT));
-    GA_RWHandleF  fd_dist_h(m_gdp->findFloatTuple(GA_ATTRIB_POINT, "fd_distance", 1));
+    GA_RWHandleV3 cd_h(cd_a.get());
+    GA_RWHandleF  fd_dist_h(dist_a.get());
 
     const float radius_sqrt = radius*radius;
     GU_MinInfo  m_closest_pt_info(radius_sqrt);

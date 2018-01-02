@@ -13,6 +13,7 @@
 #include <GQ/GQ_Detail.h>
 #include <GEO/GEO_PointTree.h>
 #include <UT/UT_Color.h>
+#include <GA/GA_AIFCopyData.h>
 
 #include <unordered_map>
 #include <memory>
@@ -400,7 +401,23 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     // Execute storage:
     alglib::real_1d_array coord("[0,0,0]");
     alglib::real_1d_array result("[0,0,0]");
-    GA_ROHandleF distance_h(gdp->findFloatTuple(GA_ATTRIB_POINT, "fd_distance", 1));
+
+    GA_Attribute * cd_a = gdp->addDiffuseAttribute(GA_ATTRIB_POINT);
+    GA_RWHandleV3 cd_h(cd_a);
+    UT_Color affected_clr(UT_RGB, 1.f,1.f,1.f);
+    // const GA_Attribute * cd_capture = m_mesh_capture.getColorAttribute();
+    // FIXME This doesn't work.
+    // if (getPicked() && cd_a && cd_capture) {
+    //     const GA_AIFCopyData * copy_attrib = cd_a->getAIFCopyData();
+    //     copy_attrib->copy(*cd_a, gdp->getPointRange(), *cd_capture, gdp->getPointRange());
+    // }
+
+    GA_Attribute * distance_a = m_mesh_capture.getDistanceAttribute();
+    if (!distance_a) {
+        addWarning(SOP_MESSAGE, "Can't find distance capture attribute. Won't apply radius nor falloff.");
+    }
+
+    GA_ROHandleF distance_h(distance_a);
     DEBUG_PRINT("distance_h.isInvalid() %i\n", distance_h.isInvalid());
     const float radius_sqrt = radius*radius;
     GA_FOR_ALL_PTOFF(gdp, ptoff) {
@@ -426,6 +443,17 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
         float falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
         falloff = SYSpow(1.f - falloff, falloffrate);
+
+        if (getPicked()) {
+            float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 360.f);
+            affected_clr.setHSV(hue, 1.f, 1.f);
+        } else {
+            affected_clr.setRGB(1,1,1);
+        }
+        if (cd_h.isValid()) {
+            cd_h.set(ptoff, affected_clr.rgb());
+        }
+
         displace *= falloff;
         gdp->setPos3(ptoff, pos + displace);
     }
