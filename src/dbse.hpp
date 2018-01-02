@@ -18,10 +18,11 @@ public:
         bool computeWeights(const GA_Attribute * rest_attrib);
         bool isComputed() { return myComputed && myQrMatrix && myWeights; }
         void displaceVector(const GA_Index & ptidx, UT_Vector3 & disp);
+        bool getWeights(UT_FprealArray & weights_array);
 private:
     //uint myNpoints = 0;
     bool myInitialized = false;
-    bool myComputed = false;
+    bool myComputed    = false;
     const GU_Detail * myGdp;
 
     Eigen::MatrixXd myShapesMatrix;

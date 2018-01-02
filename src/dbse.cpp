@@ -30,6 +30,7 @@ bool DBSE::init(const GU_Detail * gdp, const ShapesVector & shapes)  {
     }
     myQrMatrix = std::move(QRMatrixPtr(new QRMatrix(myShapesMatrix)));
     myInitialized = true;
+    myComputed    = false; // we need to recompute weights.
     return myInitialized;
 }
 
@@ -69,6 +70,19 @@ void DBSE::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp)
         disp += UT_Vector3(xd, yd, zd) * w * 3;
     }
     
+}
+
+bool DBSE::getWeights(UT_FprealArray & weights_array) 
+{
+    if (!myComputed) {
+        return false;
+    }
+
+    const Eigen::VectorXd & weights = *(myWeights.get());
+    weights_array.setSize(weights.rows());
+    for(int i=0; i< weights.size(); ++i)
+        weights_array(i) = weights(i); 
+    return true;
 }
 
 

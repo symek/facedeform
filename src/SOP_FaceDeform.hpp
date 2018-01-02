@@ -104,13 +104,15 @@ private:
     fpreal  FALLOFFRADIUS(fpreal t)    { return evalFloat("falloffradius", 0, t); }
     fpreal  FALLOFFRATE(fpreal t)  { return evalFloat("falloffrate", 0, t); }
 
+    // Own stuff 
+    void    setupBlends(OP_Context &context);
+
     /// This is the group of geometry to be manipulated by this SOP and cooked
     /// by the method "cookInputGroups".
     const GA_PointGroup *myGroup;
 
     /// Direct Blend shape edit class (morph space deformation)
     DBSE myDBSE;
-    // bool myUpdateBlends = true;
 };
 
 // class op_RBFDeform {
