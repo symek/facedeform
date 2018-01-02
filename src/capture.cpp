@@ -30,6 +30,8 @@ bool ProximityCapture::init(GU_Detail * mesh, const GU_Detail * rest_rig)  {
     // Helper detached attrbis. 
     cd_a.reset(nullptr);
     dist_a.reset(nullptr);
+    // std::map of affected groups
+    m_handlers_map.clear();
 
     // TODO: We should create detached attribute and copy it into Cd outside this class.
     #if 0

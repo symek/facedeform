@@ -402,11 +402,12 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     alglib::real_1d_array coord("[0,0,0]");
     alglib::real_1d_array result("[0,0,0]");
 
-    GA_Attribute * cd_a = gdp->addDiffuseAttribute(GA_ATTRIB_POINT);
+    GA_Attribute * cd_a = gdp->addFloatTuple(GA_ATTRIB_POINT, "Cd", 3, \
+        GA_Defaults(GA_STORE_REAL32, 3, 1.f, 1.f, 1.f));
     GA_RWHandleV3 cd_h(cd_a);
     UT_Color affected_clr(UT_RGB, 1.f,1.f,1.f);
-    // const GA_Attribute * cd_capture = m_mesh_capture.getColorAttribute();
     // FIXME This doesn't work.
+    // const GA_Attribute * cd_capture = m_mesh_capture.getColorAttribute();
     // if (getPicked() && cd_a && cd_capture) {
     //     const GA_AIFCopyData * copy_attrib = cd_a->getAIFCopyData();
     //     copy_attrib->copy(*cd_a, gdp->getPointRange(), *cd_capture, gdp->getPointRange());
@@ -418,7 +419,6 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     }
 
     GA_ROHandleF distance_h(distance_a);
-    DEBUG_PRINT("distance_h.isInvalid() %i\n", distance_h.isInvalid());
     const float radius_sqrt = radius*radius;
     GA_FOR_ALL_PTOFF(gdp, ptoff) {
         float distance_sqrt = 0.f;
@@ -448,7 +448,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 360.f);
             affected_clr.setHSV(hue, 1.f, 1.f);
         } else {
-            affected_clr.setRGB(1,1,1);
+            affected_clr.setRGB(1.f,1.f,1.f);
         }
         if (cd_h.isValid()) {
             cd_h.set(ptoff, affected_clr.rgb());
@@ -458,120 +458,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         gdp->setPos3(ptoff, pos + displace);
     }
     #else
-    // Add temp color to visualize affected regions
-    // FIXME: this doesn't work correctly.
-    GA_RWHandleV3 cd_h;
-    UT_Color affected_clr(UT_RGB, 1.f,1.f,1.f);
-    if (getPicked()) {
-        cd_h = GA_RWHandleV3(gdp->findDiffuseAttribute(GA_ATTRIB_POINT));
-        if (!cd_h.isValid()) {
-            cd_h = GA_RWHandleV3(gdp->addDiffuseAttribute(GA_ATTRIB_POINT));
-        }
-    }
-
-    Helper distance attribute per target point ot closest rig point.
-    GA_RWHandleF fd_falloff_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_falloff", 1));
-
-    Poor's man geodesic distance
-    GQ_Detail     gq_detail(gdp);
-    GEO_PointTree gdp_tree, rest_tree;
-    gdp_tree.build(gdp);
-    rest_tree.build(rest_control_rig);
-  
-    { 
-        typedef std::unique_ptr<GA_PointGroup> GA_PointGroupPtr;
-        typedef std::unordered_map<int, GA_PointGroupPtr> HandlerGroupMap;
-       
-        HandlerGroupMap handlers_map;
-        GA_PointGroup partial_group(*gdp);
-
-        GA_ROHandleI class_h(rest_control_rig->findIntTuple(GA_ATTRIB_POINT, "class", 1));
-        if(class_h.isInvalid()) {
-            GA_PointGroupPtr handle_group(new GA_PointGroup(*gdp));
-            handlers_map.insert(std::make_pair<int, \
-                GA_PointGroupPtr>(0, std::move(handle_group)));
-        }
- 
-        GA_FOR_ALL_PTOFF(rest_control_rig, ptoff) { 
-            const UT_Vector3 anchor_pos  = rest_control_rig->getPos3(ptoff);
-            const GA_Index  target_idx   = gdp_tree.findNearestIdx(anchor_pos);
-            const GA_Offset target_ptoff = gdp->pointOffset(target_idx);
-
-            int handle_id = 0;
-            if (class_h.isValid()) {
-                handle_id = class_h.get(ptoff); 
-            }
-            if(handlers_map.find(handle_id) == handlers_map.end()) {
-                GA_PointGroupPtr handle_group(new GA_PointGroup(*gdp));
-                handlers_map.insert(std::pair<int, \
-                    GA_PointGroupPtr>(handle_id, std::move(handle_group)));  
-            }
-            gq_detail.groupEdgePoints(target_ptoff, max_edges, partial_group);
-            GA_PointGroup * handle_group = handlers_map[handle_id].get();
-            handle_group->combine(&partial_group);
-            partial_group.clear();
-        }
-        
-        // Execute storage:
-        alglib::real_1d_array coord("[0,0,0]");
-        alglib::real_1d_array result("[0,0,0]");
-
-        GU_RayIntersect handler_ray_cache(rest_control_rig);
-        const float radius_sqrt = radius*radius;
-        GU_MinInfo closest_pt_info(radius_sqrt);
-
-        HandlerGroupMap::const_iterator it;
-        for (it = handlers_map.begin(); it != handlers_map.end(); it++) {
-            const GA_PointGroupPtr & affected_group = it->second;
-            for (GA_Size i=0; i<affected_group->entries(); ++i)  {
-                const GA_Offset  target_ptoff = affected_group->findOffsetAtGroupIndex(i);
-                const UT_Vector3 target_pos   = gdp->getPos3(target_ptoff);
-
-                float distance_sqrt = 0.000001f;
-                float falloff  = 1.f;
-                
-                if (dofalloff) {
-                    if (handler_ray_cache.minimumPoint(target_pos, closest_pt_info)) {
-                        UT_Vector4 anchor_pos;
-                        closest_pt_info.prim->evaluateInteriorPoint(anchor_pos, \
-                            closest_pt_info.u1, closest_pt_info.v1);
-                        distance_sqrt = closest_pt_info.d;
-                        closest_pt_info.init(); // reset MinInfo, otherwise it won't work on next run.
-                    }
-                    
-                    falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
-                    falloff = SYSpow(1.f - falloff, falloffrate);
-                    fd_falloff_h.set(target_ptoff, falloff);
-                }
-
-                if (getPicked() && cd_h.isValid()) {
-                    float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 360.f);
-                    affected_clr.setHSV(hue, 1.f, 1.f);
-                    cd_h.set(target_ptoff, affected_clr.rgb());
-                }
-
-                if (distance_sqrt > radius_sqrt) 
-                    continue;
-                
-                const double dp[3] = {target_pos.x(), target_pos.y(), target_pos.z()};
-
-                coord.setcontent(3, dp);
-                alglib::rbfcalc(model, coord, result);
-                UT_Vector3 displace(result[0], result[1], result[2]);
-
-                if (do_tangent_disp) {
-                    UT_Vector3 u = tangentu_h.get(ptoff); 
-                    UT_Vector3 v = tangentv_h.get(ptoff);
-                    UT_Vector3 n = normals_h.get(ptoff);
-                    u.normalize(); v.normalize(); n.normalize();
-                    project_to_tangents(u, v, n, displace);
-                }
-
-                displace *= falloff;
-                gdp->setPos3(target_ptoff, target_pos + displace);
-            }
-        }
-    }
+    ////
     #endif
 
     // Any inputs above 2 is considered as morph targets...
