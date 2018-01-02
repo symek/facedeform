@@ -110,6 +110,7 @@ private:
 
     /// Direct Blend shape edit class (morph space deformation)
     DBSE myDBSE;
+    // bool myUpdateBlends = true;
 };
 
 // class op_RBFDeform {

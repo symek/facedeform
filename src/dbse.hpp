@@ -7,26 +7,27 @@ namespace facedeform {
 class DBSE 
 {
 public:
-    typedef std::vector<const GU_Detail*> BlendShapesV;
+    typedef std::vector<const GU_Detail*> ShapesVector;
 private:
     typedef Eigen::HouseholderQR<Eigen::MatrixXd> QRMatrix;
-public: DBSE() {};
-        ~DBSE();
-        bool init(const SOP_Node * node, const BlendShapesV & shapes);
-        bool isInitialized() { return myInitialized; }
-        bool compute(const GA_Attribute * rest_attrib);
-        bool isComputed() { return myComputed; }
+    typedef std::unique_ptr<QRMatrix> QRMatrixPtr;
+    typedef std::unique_ptr<Eigen::VectorXd> WeightsVector;
+public: 
+        bool init(const GU_Detail * gdp, const ShapesVector & shapes);
+        bool isInitialized() { return myInitialized && myShapesMatrix.rows(); }
+        bool computeWeights(const GA_Attribute * rest_attrib);
+        bool isComputed() { return myComputed && myQrMatrix && myWeights; }
         void displaceVector(const GA_Index & ptidx, UT_Vector3 & disp);
 private:
-    uint myNpoints = 0;
+    //uint myNpoints = 0;
     bool myInitialized = false;
     bool myComputed = false;
-    const SOP_Node * mySop;
+    const GU_Detail * myGdp;
 
-    Eigen::MatrixXd myBlendShapesM;
-    QRMatrix myQrMatrix;
+    Eigen::MatrixXd myShapesMatrix;
     Eigen::VectorXd myDeltaV;
-    Eigen::VectorXd myWeights;
+    QRMatrixPtr myQrMatrix = NULL;
+    WeightsVector myWeights = NULL;
 };
 
 

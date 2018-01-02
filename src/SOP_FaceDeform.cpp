@@ -259,12 +259,13 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     // Initial work for morph space deformation.
     // we need to store rest P.
     if (morph_space && (nConnectedInputs() > 3)) {
+
         GA_Attribute * rest = gdp->addRestAttribute(GA_ATTRIB_POINT);
         const GA_Attribute * pos = gdp->getP();
         rest->replace(*pos);
         
         // Gather blendshapes
-        DBSE::BlendShapesV shapes;
+        DBSE::ShapesVector shapes;
         for (unsigned i=3; i < nConnectedInputs(); ++i) {
             const GU_Detail* shape = inputGeo(i);
             if (shape->getNumPoints() != gdp->getNumPoints()) {
@@ -276,9 +277,11 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         }
 
         // Initialize DBSE matrix 
-        if (!myDBSE.init(this, shapes)) {
+        if (!myDBSE.init(gdp, shapes)) {
              addWarning(SOP_MESSAGE, "Can't proceed with morph space deformation. Ingoring it.");
         }
+
+        // myUpdateBlends = false;
 
     } else if (morph_space) {
         addWarning(SOP_MESSAGE, "No Blendshapes found. Ignoring morphspace deformation.");
@@ -462,11 +465,11 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     {
         const GA_Attribute * rest = gdp->findFloatTuple(GA_ATTRIB_POINT, "rest", 3);
         GA_ROHandleV3 rest_h(rest);
-        if(!myDBSE.compute(rest)) {
+        if(!myDBSE.computeWeights(rest)) {
             addWarning(SOP_MESSAGE, "Can't compute morph space deformation. Ingoring it.");
         } else {
             GA_FOR_ALL_PTOFF(gdp, ptoff) {
-                const GA_Size ptidx = gdp->pointIndex(ptoff);
+                const GA_Index ptidx = gdp->pointIndex(ptoff);
                 UT_Vector3 displace(0,0,0);
                 myDBSE.displaceVector(ptidx, displace);
                 UT_Vector3 pos = rest_h.get(ptoff);
