@@ -9,9 +9,9 @@ find_package( Houdini REQUIRED )
 set( ALGLIB_SRC_PATH "$ENV{ALGLIB_PREFIX_PATH}/src")
 
 if (NOT EXISTS ${ALGLIB_SRC_PATH})
-	message(FATAL_ERROR "Specify ALGLIB location with $ALGLIB_SRC_PATH. CMake will exit now.")
+    message(FATAL_ERROR "Specify ALGLIB location with $ALGLIB_SRC_PATH. CMake will exit now.")
 else()
-	message(STATUS "ALGLIB_SRC_PATH: ${ALGLIB_SRC_PATH}")
+    message(STATUS "ALGLIB_SRC_PATH: ${ALGLIB_SRC_PATH}")
 endif()
 
 # Collect files.
@@ -21,9 +21,9 @@ file( GLOB ALGLIB_SOURCES ${ALGLIB_SRC_PATH}/*.cpp )
 # Eigen time
 set( EIGEN_INCLUDE_DIR "$ENV{EIGEN_INCLUDE_DIR}")
 if (NOT EXISTS ${EIGEN_INCLUDE_DIR})
-	message(FATAL_ERROR "Specify EIGEN location with $EIGEN_INCLUDE_DIR. CMake will exit now.")
+    message(FATAL_ERROR "Specify EIGEN location with $EIGEN_INCLUDE_DIR. CMake will exit now.")
 else()
-	message(STATUS "EIGEN_INCLUDE_DIR: ${EIGEN_INCLUDE_DIR}")
+    message(STATUS "EIGEN_INCLUDE_DIR: ${EIGEN_INCLUDE_DIR}")
 endif()
 include_directories(${EIGEN_INCLUDE_DIR})
 
@@ -33,9 +33,11 @@ set( CMAKE_BUILD_TYPE Debug)
 set( library_name SOP_FaceDeform )
 
 add_library( ${library_name} SHARED
-	${ALGLIB_SOURCES}
-	src/dbse.cpp
-	src/dbse.hpp
+    ${ALGLIB_SOURCES}
+    src/dbse.cpp
+    src/dbse.hpp
+    src/capture.cpp
+    src/capture.hpp
     src/SOP_FaceDeform.cpp
     src/SOP_FaceDeform.hpp
 )

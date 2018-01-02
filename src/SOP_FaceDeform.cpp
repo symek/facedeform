@@ -14,17 +14,19 @@
 #include <GEO/GEO_PointTree.h>
 #include <UT/UT_Color.h>
 
+#include <unordered_map>
+#include <memory>
+
 #include <Eigen/Geometry>
 #include <Eigen/StdVector>
 #include "dbse.hpp"
+#include "capture.hpp"
 #include "SOP_FaceDeform.hpp"
 
 #include "stdafx.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#include <unordered_map>
-#include <memory>
 
 
 using namespace facedeform;
@@ -192,7 +194,7 @@ void SOP_FaceDeform::setupBlends(OP_Context &context)
         }
     }
     // Gather blendshapes
-    if (blends_changed || !myDBSE.isInitialized()) {
+    if (blends_changed || !m_direct_blends.isInitialized()) {
         DBSE::ShapesVector shapes;
         for (unsigned i=3; i < nConnectedInputs(); ++i) {
             const GU_Detail* shape = inputGeo(i);
@@ -204,7 +206,7 @@ void SOP_FaceDeform::setupBlends(OP_Context &context)
             shapes.push_back(shape);
         }
         // Initialize DBSE matrix 
-        if (!myDBSE.init(gdp, shapes)) {
+        if (!m_direct_blends.init(gdp, shapes)) {
              addWarning(SOP_MESSAGE, "Can't proceed with morph space deformation. Ingoring it.");
         }
     }
@@ -218,6 +220,11 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     if (inputs.lock(context) >= UT_ERROR_ABORT)
         return error();
 
+    // In case we'd like to trigger recapture mesh once rest pose changed.
+    int rest_pose_changed = 0;
+    checkChangedSourceFlags(0, context, &rest_pose_changed);
+    DEBUG_PRINT("cookMySop mesh changed? %i\n", rest_pose_changed );
+
     fpreal t = context.getTime();
     duplicatePointSource(0, context);
 
@@ -225,12 +232,20 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     const GU_Detail *rest_control_rig   = inputGeo(1);
     const GU_Detail *deform_control_rig = inputGeo(2);
 
+
     // Points count in control rig should match:
     if (rest_control_rig->getNumPoints() != deform_control_rig->getNumPoints()) {
         addError(SOP_ERR_MISMATCH_POINT, "Rest and deform geometry should match.");
         return error();
     }
 
+    // Setup tracker to keep track of changes in rig.
+    int rest_rig_changed = 0;
+    if (m_input_tracker.size() != 2) {
+        m_input_tracker.push_back(InputGeoID(rest_control_rig));
+        m_input_tracker.push_back(InputGeoID(deform_control_rig));
+        rest_rig_changed = 1;
+    }
     /// UI
     // ALGLIB parms:
     UT_String modelName, termName;
@@ -294,7 +309,30 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             and N attribute to allow tangent displacement.");
     }
 
-    // Initial work for morph space deformation.
+    // Proximity capture.
+    // We keep track of dataid in m_input_tracker, at 0 is our control rig...
+    if (!(m_input_tracker.at(0) == rest_control_rig)) {
+        m_input_tracker.at(0).update();
+        m_input_tracker.at(1).update();
+        rest_rig_changed = 1;
+    }
+    DEBUG_PRINT("rest rig changed? %i\n", rest_rig_changed );
+    DEBUG_PRINT("m_mesh_capture init: %i, captured: %i\n", \
+        m_mesh_capture.isInitialized() , m_mesh_capture.isCaptured());
+
+    if (rest_pose_changed || rest_rig_changed \
+        || !m_mesh_capture.isInitialized() || !m_mesh_capture.isCaptured()) {
+
+        if(!m_mesh_capture.init(gdp, rest_control_rig)) {
+            addError(SOP_MESSAGE, "Can't initialize geometry to capture with a rig!");
+            return error();
+        }
+        if(!m_mesh_capture.capture(max_edges, radius, dofalloff, falloffrate)) {
+            addError(SOP_MESSAGE, "Can't capture geometry with a rig!");
+            return error();
+        }
+    }
+    // Morph space deformation.
     // we need to store rest P.
     if (morph_space && (nConnectedInputs() > 3)) {
         setupBlends(context);
@@ -358,6 +396,40 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     if (cookInputGroups(context) >= UT_ERROR_ABORT)
         return error();
 
+    #if 1 
+    // Execute storage:
+    alglib::real_1d_array coord("[0,0,0]");
+    alglib::real_1d_array result("[0,0,0]");
+    GA_ROHandleF distance_h(gdp->findFloatTuple(GA_ATTRIB_POINT, "fd_distance", 1));
+    DEBUG_PRINT("distance_h.isInvalid() %i\n", distance_h.isInvalid());
+    const float radius_sqrt = radius*radius;
+    GA_FOR_ALL_PTOFF(gdp, ptoff) {
+        float distance_sqrt = 0.f;
+        if (distance_h.isValid())
+            distance_sqrt = distance_h.get(ptoff);
+
+        if (distance_sqrt > radius_sqrt) {
+            continue;
+        }
+        const UT_Vector3 pos = gdp->getPos3(ptoff);
+        const double dp[3] = {pos.x(), pos.y(), pos.z()};
+        coord.setcontent(3, dp);
+        alglib::rbfcalc(model, coord, result);
+        UT_Vector3 displace(result[0], result[1], result[2]);
+        if (do_tangent_disp) {
+            UT_Vector3 u = tangentu_h.get(ptoff); 
+            UT_Vector3 v = tangentv_h.get(ptoff);
+            UT_Vector3 n = normals_h.get(ptoff);
+            u.normalize(); v.normalize(); n.normalize();
+            project_to_tangents(u, v, n, displace);
+        }
+
+        float falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
+        falloff = SYSpow(1.f - falloff, falloffrate);
+        displace *= falloff;
+        gdp->setPos3(ptoff, pos + displace);
+    }
+    #else
     // Add temp color to visualize affected regions
     // FIXME: this doesn't work correctly.
     GA_RWHandleV3 cd_h;
@@ -369,10 +441,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         }
     }
 
-    // Helper distance attribute per target point ot closest rig point.
+    Helper distance attribute per target point ot closest rig point.
     GA_RWHandleF fd_falloff_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_falloff", 1));
 
-    // Poor's man geodesic distance
+    Poor's man geodesic distance
     GQ_Detail     gq_detail(gdp);
     GEO_PointTree gdp_tree, rest_tree;
     gdp_tree.build(gdp);
@@ -472,16 +544,17 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             }
         }
     }
+    #endif
 
     // Any inputs above 2 is considered as morph targets...
-    if (morph_space && (nConnectedInputs() > 3) && myDBSE.isInitialized() )
+    if (morph_space && (nConnectedInputs() > 3) && m_direct_blends.isInitialized() )
     {
         const GA_Attribute * rest = gdp->findFloatTuple(GA_ATTRIB_POINT, "rest", 3);
         GA_ROHandleV3 rest_h(rest);
 
         bool weights_done = false;
-        if(!myDBSE.isComputed()) {
-            weights_done = myDBSE.computeWeights(rest);
+        if(!m_direct_blends.isComputed()) {
+            weights_done = m_direct_blends.computeWeights(rest);
         }
         if (!weights_done) {
             addWarning(SOP_MESSAGE, "Can't compute weights for morphspace deformation. Ingoring it.");
@@ -489,7 +562,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             GA_FOR_ALL_PTOFF(gdp, ptoff) {
                 const GA_Index ptidx = gdp->pointIndex(ptoff);
                 UT_Vector3 displace(0,0,0);
-                myDBSE.displaceVector(ptidx, displace);
+                m_direct_blends.displaceVector(ptidx, displace);
                 UT_Vector3 pos = rest_h.get(ptoff);
                 gdp->setPos3(ptoff, pos + displace);
             }
@@ -497,7 +570,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             GA_Attribute * w_attrib = gdp->addFloatArray(GA_ATTRIB_DETAIL, "weights", 1);
             const GA_AIFNumericArray * w_aif = w_attrib->getAIFNumericArray();
             UT_FprealArray weights_array;
-            if(myDBSE.getWeights(weights_array)) {
+            if(m_direct_blends.getWeights(weights_array)) {
                 w_aif->set(w_attrib, 0, weights_array);
                 w_attrib->bumpDataId();
             }

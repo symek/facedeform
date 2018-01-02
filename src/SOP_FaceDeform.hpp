@@ -19,6 +19,12 @@
 
 namespace facedeform {
 
+#ifndef NDEBUG
+#define DEBUG_PRINT(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)
+#else
+#define DEBUG_PRINT(fmt, ...) do {} while (0)
+#endif
+
 inline void project_to_tangents(UT_Vector3 & u, UT_Vector3 & v, 
                                 UT_Vector3 & n, UT_Vector3 & displace)
 {
@@ -34,40 +40,30 @@ inline void project_to_tangents(UT_Vector3 & u, UT_Vector3 & v,
     displace = UT_Vector3(a1 * da1 + a2 * da2); 
 }
 
-// inline void create_blendshape_matrix(const GU_Detail * gdp, std::vector<const GU_Detail*> & shapes,
-//                                    Eigen::MatrixXd & blends_mat, Eigen::VectorXd & delta) 
-// {
-//     GA_ROHandleV3 rest_h(gdp, GA_ATTRIB_POINT, "rest");
-//     unsigned col = 0;
-//     GA_Offset ptoff;
-//     std::vector<const GU_Detail*>::const_iterator it;
-//     for(it=shapes.begin(); it != shapes.end(); it++, ++col) {
-//         const GU_Detail * shape = *it;
-//         GA_FOR_ALL_PTOFF(shape, ptoff) {
-//             const UT_Vector3 rest_pos  = rest_h.get(ptoff);
-//             const GA_Index   rest_itx  = gdp->pointIndex(ptoff);
-//             const GA_Offset  shape_off = shape->pointOffset(rest_itx);
-//             const UT_Vector3 shape_pos = shape->getPos3(shape_off);
-//             const UT_Vector3 shape_delta(shape_pos - rest_pos);
-//             blends_mat(3*rest_itx + 0, col) = shape_delta.x();
-//             blends_mat(3*rest_itx + 1, col) = shape_delta.y(); 
-//             blends_mat(3*rest_itx + 2, col) = shape_delta.z();
-//         }
-//     }
-//     GA_FOR_ALL_PTOFF(gdp, ptoff) {
-//         const GA_Index ptidx  = gdp->pointIndex(ptoff);
-//         const UT_Vector3 pos  = gdp->getPos3(ptoff);
-//         const UT_Vector3 rest = rest_h.get(ptoff);
-//         delta(3*ptidx + 0) = pos.x() - rest.x();
-//         delta(3*ptidx + 1) = pos.y() - rest.y();
-//         delta(3*ptidx + 2) = pos.z() - rest.z();
-//     }
-// }
 
 class SOP_FaceDeform : public SOP_Node
 {
 public:
-         SOP_FaceDeform(OP_Network *net, const char *name, OP_Operator *op);
+        struct InputGeoID {
+            InputGeoID(const GU_Detail * gdp) {
+                m_gdp = gdp;
+                update();
+            }
+            void update() {
+                posID = m_gdp->getP()->getDataId();
+                topID = m_gdp->getTopology().getDataId();
+            }
+            int operator == (const GU_Detail * other) const {
+                return posID == other->getP()->getDataId() \
+                && topID == other->getTopology().getDataId();
+            }
+            int64 posID = -1;
+            int64 topID = -1;
+            const GU_Detail * m_gdp = nullptr;
+        };
+        typedef std::vector<InputGeoID> InputGeoIDVector;
+
+        SOP_FaceDeform(OP_Network *net, const char *name, OP_Operator *op);
     virtual ~SOP_FaceDeform();
 
     static PRM_Template      myTemplateList[];
@@ -112,7 +108,9 @@ private:
     const GA_PointGroup *myGroup;
 
     /// Direct Blend shape edit class (morph space deformation)
-    DBSE myDBSE;
+    DBSE             m_direct_blends;
+    ProximityCapture m_mesh_capture;
+    InputGeoIDVector m_input_tracker;
 };
 
 // class op_RBFDeform {
