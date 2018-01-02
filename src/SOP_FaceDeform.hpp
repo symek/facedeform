@@ -108,7 +108,7 @@ private:
     const GA_PointGroup *myGroup;
 
     /// Direct Blend shape edit class (morph space deformation)
-    DBSE             m_direct_blends;
+    DirectBSEdit     m_direct_blends;
     ProximityCapture m_mesh_capture;
     InputGeoIDVector m_input_tracker;
 };

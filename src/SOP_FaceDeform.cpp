@@ -196,7 +196,7 @@ void SOP_FaceDeform::setupBlends(OP_Context &context)
     }
     // Gather blendshapes
     if (blends_changed || !m_direct_blends.isInitialized()) {
-        DBSE::ShapesVector shapes;
+        DirectBSEdit::ShapesVector shapes;
         for (unsigned i=3; i < nConnectedInputs(); ++i) {
             const GU_Detail* shape = inputGeo(i);
             if (shape->getNumPoints() != gdp->getNumPoints()) {
@@ -206,7 +206,7 @@ void SOP_FaceDeform::setupBlends(OP_Context &context)
             }
             shapes.push_back(shape);
         }
-        // Initialize DBSE matrix 
+        // Initialize DirectBSEdit matrix 
         if (!m_direct_blends.init(gdp, shapes)) {
              addWarning(SOP_MESSAGE, "Can't proceed with morph space deformation. Ingoring it.");
         }

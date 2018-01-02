@@ -6,7 +6,7 @@
 namespace facedeform
 {
 
-bool DBSE::init(const GU_Detail * gdp, const ShapesVector & shapes)  {
+bool DirectBSEdit::init(const GU_Detail * gdp, const ShapesVector & shapes)  {
     myGdp = gdp;
     const GA_Size npoints = gdp->getNumPoints();
     myShapesMatrix.conservativeResize(npoints*3, shapes.size());
@@ -34,7 +34,7 @@ bool DBSE::init(const GU_Detail * gdp, const ShapesVector & shapes)  {
     return myInitialized;
 }
 
-bool DBSE::computeWeights(const GA_Attribute * rest_attrib) {
+bool DirectBSEdit::computeWeights(const GA_Attribute * rest_attrib) {
     GA_ROHandleV3 rest_h(rest_attrib);
     if (rest_h.isInvalid()) {
         return false;
@@ -57,7 +57,7 @@ bool DBSE::computeWeights(const GA_Attribute * rest_attrib) {
     return myComputed;
 }
 
-void DBSE::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp) 
+void DirectBSEdit::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp) 
 {
     // TODO: add clamping
     const Eigen::VectorXd & weights = *(myWeights.get());
@@ -72,7 +72,7 @@ void DBSE::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp)
     
 }
 
-bool DBSE::getWeights(UT_FprealArray & weights_array) 
+bool DirectBSEdit::getWeights(UT_FprealArray & weights_array) 
 {
     if (!myComputed) {
         return false;

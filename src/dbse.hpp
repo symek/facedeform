@@ -4,7 +4,7 @@
 namespace facedeform {
 
 
-class DBSE 
+class DirectBSEdit 
 {
 public:
     typedef std::vector<const GU_Detail*> ShapesVector;
