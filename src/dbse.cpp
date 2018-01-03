@@ -66,7 +66,7 @@ void DirectBSEdit::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp, con
         const float xd = myShapesMatrix(3*ptidx + 0, col);
         const float yd = myShapesMatrix(3*ptidx + 1, col);
         const float zd = myShapesMatrix(3*ptidx + 2, col);
-        const float w  = weights(col) * 3;
+        const float w  = weights(col) * 3; // TODO Remove magic number. 
         const float cw = (!clamp) ? w : SYSclamp(w, clamp->x(), clamp->y()); // ugly
         disp += UT_Vector3(xd, yd, zd) * cw;
     }
@@ -78,7 +78,6 @@ bool DirectBSEdit::getWeights(UT_FprealArray & weights_array)
     if (!myComputed) {
         return false;
     }
-
     const Eigen::VectorXd & weights = *(myWeights.get());
     weights_array.setSize(weights.rows());
     for(int i=0; i< weights.size(); ++i)

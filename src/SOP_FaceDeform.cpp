@@ -449,20 +449,23 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         if (!weights_done) {
             addWarning(SOP_MESSAGE, "Can't compute weights for morphspace deformation. Ingoring it.");
         } else {
-            //ugly
+            //Turn on clamping.
             UT_Vector2 * clamp = nullptr;
-            if (doclampweight) clamp = &weightrange;
+            if (doclampweight) {
+             clamp = &weightrange;
+            }
+            // Project displace onto morph targets
             GA_FOR_ALL_PTOFF(gdp, ptoff) {
                 const GA_Index ptidx = gdp->pointIndex(ptoff);
                 UT_Vector3 displace(0,0,0);
                 m_direct_blends.displaceVector(ptidx, displace, clamp);
                 const UT_Vector3 rest = rest_h.get(ptoff);
                 const UT_Vector3 pos  = gdp->getPos3(ptoff);
-                if (dofalloff) {
+                if (dofalloff && (falloffradius != 0.f)) {
                     UT_Vector3 delta(pos - rest);
                     displace += delta*falloffradius;
                 }
-                gdp->setPos3(ptoff, pos + displace);
+                gdp->setPos3(ptoff, rest + displace);
             }
             // copy blendshape's weights into detail attribute
             GA_Attribute * w_attrib = gdp->addFloatArray(GA_ATTRIB_DETAIL, "weights", 1);
@@ -476,7 +479,6 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     }
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.
-    gdp->destroyAttribute(GA_ATTRIB_POINT, "distance");
     if (!myGroup || !myGroup->isEmpty())
         gdp->getP()->bumpDataId();
 
