@@ -10,42 +10,26 @@ namespace facedeform
 bool ProximityCapture::init(GU_Detail * mesh, const GU_Detail * rest_rig)  {
 
     DEBUG_PRINT("ProximityCapture::init: %i\n", init_counter);
-    m_gdp = mesh;
-    m_rig = rest_rig;
+    m_gdp = mesh; m_rig = rest_rig;
     // mesh point tree
-    m_gdp_tree.clear();
-    m_gdp_tree.build(m_gdp);
+    m_gdp_tree.clear();  m_gdp_tree.build(m_gdp);
     // rig point tree
-    m_rest_tree.clear();
-    m_rest_tree.build(m_rig);
+    m_rest_tree.clear(); m_rest_tree.build(m_rig);
     // rig ray intersect
-    m_handler_ray_cache.clear();
-    m_handler_ray_cache.init(m_rig);
+    m_handler_ray_cache.clear(); m_handler_ray_cache.init(m_rig);
     // GQ Edge structure 
     if (m_gq_detail) {
         m_gq_detail->clearAndDestroy();
     }
-    m_gq_detail.reset(nullptr);
-    m_gq_detail = std::move(GQ_DetailPtr(new GQ_Detail(m_gdp)));
+    m_gq_detail.reset(nullptr); m_gq_detail = std::move(GQ_DetailPtr(new GQ_Detail(m_gdp)));
     // Helper detached attrbis. 
-    cd_a.reset(nullptr);
-    dist_a.reset(nullptr);
+    cd_a.reset(nullptr); dist_a.reset(nullptr);
     // std::map of affected groups
     m_handlers_map.clear();
-
-    // TODO: We should create detached attribute and copy it into Cd outside this class.
-    #if 0
-    GA_Attribute * cd_a = m_gdp->findDiffuseAttribute(GA_ATTRIB_POINT);
-    if (!cd_a) {
-        cd_a = m_gdp->addDiffuseAttribute(GA_ATTRIB_POINT);
-    }
-     // Helper distance attribute per target point ot closest rig point
-    GA_Attribute * dist_a    = m_gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_distance", 1);
-    #else
-        cd_a.reset(m_gdp->createDetachedTupleAttribute(GA_ATTRIB_POINT, GA_STORE_REAL32, 3));
-        dist_a.reset(m_gdp->createDetachedTupleAttribute(GA_ATTRIB_POINT, GA_STORE_REAL32, 1));
-    #endif
-    
+    // own attribs
+    cd_a.reset(m_gdp->createDetachedTupleAttribute(GA_ATTRIB_POINT, GA_STORE_REAL32, 3));
+    dist_a.reset(m_gdp->createDetachedTupleAttribute(GA_ATTRIB_POINT, GA_STORE_REAL32, 1));
+    // quality check
     if (!cd_a || !dist_a /*more conditions related to trees and ray cache*/) {
         m_init = false; 
         m_capture = false;  
@@ -56,7 +40,6 @@ bool ProximityCapture::init(GU_Detail * mesh, const GU_Detail * rest_rig)  {
         m_init    = true;
         m_capture = false; 
     }
-
     return m_init;
 }
 

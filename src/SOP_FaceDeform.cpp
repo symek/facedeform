@@ -397,6 +397,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         addWarning(SOP_MESSAGE, "Can't find distance capture attribute. Won't apply radius nor falloff.");
     }
     GA_ROHandleF distance_h(distance_a);
+    GA_RWHandleF fd_falloff_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_falloff", 1));
     const float radius_sqrt = radius*radius;
     GA_FOR_ALL_PTOFF(gdp, ptoff) {
         float distance_sqrt = 0.f;
@@ -419,12 +420,15 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         }
         float falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
         falloff = SYSpow(1.f - falloff, falloffrate);
+        fd_falloff_h.set(ptoff, falloff);
+        // Set pseudo color only when SOP_Node is selected. FIXME
         if (getPicked()) {
             float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 360.f);
             affected_clr.setHSV(hue, 1.f, 1.f);
         } else {
             affected_clr.setRGB(1.f,1.f,1.f);
         }
+
         if (cd_h.isValid()) {
             cd_h.set(ptoff, affected_clr.rgb());
         }
