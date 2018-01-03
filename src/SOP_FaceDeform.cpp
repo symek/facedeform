@@ -449,7 +449,12 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
                 const GA_Index ptidx = gdp->pointIndex(ptoff);
                 UT_Vector3 displace(0,0,0);
                 m_direct_blends.displaceVector(ptidx, displace);
-                UT_Vector3 pos = rest_h.get(ptoff);
+                const UT_Vector3 rest = rest_h.get(ptoff);
+                const UT_Vector3 pos  = gdp->getPos3(ptoff);
+                if (dofalloff) {
+                    UT_Vector3 delta(pos - rest);
+                    displace += delta*falloffradius;
+                }
                 gdp->setPos3(ptoff, pos + displace);
             }
             // copy blendshape's weights into detail attribute
