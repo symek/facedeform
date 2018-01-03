@@ -47,47 +47,55 @@ bool ProximityCapture::capture(const int & max_edges, const float & radius,
     const int & dofalloff, const float & falloffrate ) {
 
     DEBUG_PRINT("ProximityCapture::capture: %i\n", capture_counter);
-
     if (!m_init) {
         return false;
     }
-
     // At least one islads should be found...
     if(findIslands(max_edges) == 0) {
         return false;
     }
-
     UT_Color affected_clr(UT_RGB, 1.f,1.f,1.f);
+    const UT_Vector3 white(1.f, 1.f, 1.f);
     GA_RWHandleV3 cd_h(cd_a.get());
     GA_RWHandleF  fd_dist_h(dist_a.get());
 
     const float radius_sqrt = radius*radius;
     GU_MinInfo  m_closest_pt_info(radius_sqrt);
+    // Iterate other islands per handle.
     HandlerGroupMap::const_iterator it;
     for (it = m_handlers_map.begin(); it != m_handlers_map.end(); it++) {
         const GA_PointGroupPtr & affected_group = it->second;
         for (GA_Size i=0; i<affected_group->entries(); ++i)  {
+            const GA_Offset ptoff = affected_group->findOffsetAtGroupIndex(i);
+            // Get out from here, if not doing any falloffs
+            if (!dofalloff) {
+                fd_dist_h.set(ptoff, 0.f);
+                cd_h.set(ptoff, white);
+                continue;
+            }
+            float distance_sqrt = -1.f;
             m_closest_pt_info.init(radius_sqrt);
-            const GA_Offset  target_ptoff = affected_group->findOffsetAtGroupIndex(i);
-            const UT_Vector3 target_pos   = m_gdp->getPos3(target_ptoff);
-            float distance_sqrt = 1E18f;
-            if (m_handler_ray_cache.minimumPoint(target_pos, m_closest_pt_info)) {
+            const UT_Vector3 pos = m_gdp->getPos3(ptoff);
+            // We should actually have special case for all points bellow handle
+            // to have distance = 0;
+            if (m_handler_ray_cache.minimumPoint(pos, m_closest_pt_info)) {
                 UT_Vector4 anchor_pos;
                 m_closest_pt_info.prim->evaluateInteriorPoint(anchor_pos, \
                     m_closest_pt_info.u1, m_closest_pt_info.v1);
                 distance_sqrt = m_closest_pt_info.d;
             }
-                
-            float falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
-            if (dofalloff)
-                falloff = SYSpow(1.f - falloff, falloffrate);
-            if (cd_h.isValid()) {
-                float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 360.f);
-                affected_clr.setHSV(hue, 1.f, 1.f);
-                cd_h.set(target_ptoff, affected_clr.rgb());
+            // save distance (squered)
+            fd_dist_h.set(ptoff, distance_sqrt);
+            if (distance_sqrt > radius_sqrt || distance_sqrt < 0) {
+                cd_h.set(ptoff, white);
+                continue;
             }
-
-            fd_dist_h.set(target_ptoff, distance_sqrt);
+            // continue only for distsances smaller than radius
+            float falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
+            falloff = SYSpow(1.f - falloff, falloffrate);
+            float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 250.f);
+            affected_clr.setHSV(hue, 1.f, 1.f);
+            cd_h.set(ptoff, affected_clr.rgb());
         }
     }
 
@@ -101,7 +109,6 @@ int ProximityCapture::findIslands(const int & max_edges) {
     if (!m_init) {
         return 0;
     }
-    
     GA_PointGroup partial_group(*m_gdp);
     GA_ROHandleI class_h(m_rig->findIntTuple(GA_ATTRIB_POINT, "class", 1));
     if(class_h.isInvalid()) {
@@ -109,7 +116,6 @@ int ProximityCapture::findIslands(const int & max_edges) {
         m_handlers_map.insert(std::make_pair<int, \
             GA_PointGroupPtr>(0, std::move(handle_group)));
     }
-
     GA_Offset ptoff;
     GA_FOR_ALL_PTOFF(m_rig, ptoff) { 
         const UT_Vector3 anchor_pos  = m_rig->getPos3(ptoff);

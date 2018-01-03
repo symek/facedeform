@@ -307,6 +307,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     DEBUG_PRINT("m_mesh_capture init: %i, captured: %i\n", \
         m_mesh_capture.isInitialized() , m_mesh_capture.isCaptured());
 
+    // FIXME: We should reCapture also in case of radius or max_edges change. 
     if (rest_pose_changed || rest_rig_changed \
         || !m_mesh_capture.isInitialized() || !m_mesh_capture.isCaptured()) {
 
@@ -399,6 +400,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     GA_ROHandleF distance_h(distance_a);
     GA_RWHandleF fd_falloff_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_falloff", 1));
     const float radius_sqrt = radius*radius;
+    const UT_Vector3 white(1.f, 1.f, 1.f);
     GA_FOR_ALL_PTOFF(gdp, ptoff) {
         float distance_sqrt = 0.f;
         if (distance_h.isValid())
@@ -423,15 +425,15 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         fd_falloff_h.set(ptoff, falloff);
         // Set pseudo color only when SOP_Node is selected. FIXME
         if (getPicked()) {
-            float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 360.f);
+            float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 250.f);
             affected_clr.setHSV(hue, 1.f, 1.f);
         } else {
             affected_clr.setRGB(1.f,1.f,1.f);
         }
-
-        if (cd_h.isValid()) {
-            cd_h.set(ptoff, affected_clr.rgb());
-        }
+        // FIXME: this still doesn't work.
+        // if (cd_h.isValid()) {
+        //     cd_h.set(ptoff, affected_clr.rgb());
+        // }
         displace *= falloff;
         gdp->setPos3(ptoff, pos + displace);
     }
