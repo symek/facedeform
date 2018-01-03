@@ -155,7 +155,6 @@ SOP_FaceDeform::~SOP_FaceDeform() {}
 OP_ERROR
 SOP_FaceDeform::cookInputGroups(OP_Context &context, int alone)
 {
-    
     return cookInputPointGroups(
         context, // This is needed for cooking the group parameter, and cooking the input if alone.
         myGroup, // The group (or NULL) is written to myGroup if not alone.
@@ -216,30 +215,23 @@ void SOP_FaceDeform::setupBlends(OP_Context &context)
 OP_ERROR
 SOP_FaceDeform::cookMySop(OP_Context &context)
 {
-    
     OP_AutoLockInputs inputs(this);
     if (inputs.lock(context) >= UT_ERROR_ABORT)
         return error();
-
     // In case we'd like to trigger recapture mesh once rest pose changed.
     int rest_pose_changed = 0;
     checkChangedSourceFlags(0, context, &rest_pose_changed);
     DEBUG_PRINT("cookMySop mesh changed? %i\n", rest_pose_changed );
-
     fpreal t = context.getTime();
     duplicatePointSource(0, context);
-
     // Get rest and deform geometry:
     const GU_Detail *rest_control_rig   = inputGeo(1);
     const GU_Detail *deform_control_rig = inputGeo(2);
-
-
     // Points count in control rig should match:
     if (rest_control_rig->getNumPoints() != deform_control_rig->getNumPoints()) {
         addError(SOP_ERR_MISMATCH_POINT, "Rest and deform geometry should match.");
         return error();
     }
-
     // Setup tracker to keep track of changes in rig.
     int rest_rig_changed = 0;
     if (m_input_tracker.size() != 2) {
@@ -259,16 +251,13 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     const float radius = SYSmax(0.01, RADIUS(t));
     const int   layers = SYSmax(1,    LAYERS(t));
     const float lambda = SYSmax(0.01, LAMBDA(t));
-
     // Application parms:
     const int tangent_disp = TANGENT(t);
     const int morph_space  = MORPHSPACE(t);
     const int max_edges    = SYSmax(1, MAXEDGES(t));
-    
     UT_Vector2 weightrange;
     const int doclampweight = DOCLAMPWEIGHT(t);
     WEIGHTRANGE(t, weightrange);
-
     const int   dofalloff     = DOFALLOFF(t);
     const float falloffrate   = FALLOFFRATE(t);
     const float falloffradius = FALLOFFRADIUS(t);
@@ -279,7 +268,6 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     const int rest_npoints = rest_control_rig->getNumPoints();
     alglib::real_2d_array rbf_data_model;
     rbf_data_model.setlength(rest_npoints, 6);
-
     // Construct model data:
     GA_Offset ptoff;
     {   
@@ -297,7 +285,6 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             }
         }
     }
-
     // Do we have tangents?
     GA_ROHandleV3  tangentu_h(gdp, GA_ATTRIB_POINT, "tangentu");
     GA_ROHandleV3  tangentv_h(gdp, GA_ATTRIB_POINT, "tangentv");
@@ -309,7 +296,6 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
          addWarning(SOP_MESSAGE, "Append PolyFrameSOP and enable tangent[u/v] \
             and N attribute to allow tangent displacement.");
     }
-
     // Proximity capture.
     // We keep track of dataid in m_input_tracker, at 0 is our control rig...
     if (!(m_input_tracker.at(0) == rest_control_rig)) {
@@ -340,12 +326,10 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     } else if (morph_space) {
         addWarning(SOP_MESSAGE, "No blendshapes found. Ignoring morphspace deformation.");
     }
-
     // Create model objects and ralated items:
     std::string str_model;
     alglib::rbfmodel model;
     alglib::rbfreport report;
-
     try {
         alglib::rbfcreate(3, 3, model);
         alglib::rbfsetpoints(model, rbf_data_model);
@@ -386,22 +370,18 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     sprintf(info_buffer, "Termination type: %d, Iterations: %d", \
         static_cast<int>(report.terminationtype),static_cast<int>(report.iterationscount));
     addMessage(SOP_MESSAGE, &info_buffer[0]);
-
     // We won't use this model directly (unless sigle threaded path was chosen in compile time)
     // Instead we serialize it as send std::string to threads to be recreated there for 
     // further calculation.
     // alglib::rbfserialize(model, str_model);
-
     // Here we determine which groups we have to work on.  We only
     // handle point groups.
     if (cookInputGroups(context) >= UT_ERROR_ABORT)
         return error();
-
     #if 1 
     // Execute storage:
     alglib::real_1d_array coord("[0,0,0]");
     alglib::real_1d_array result("[0,0,0]");
-
     GA_Attribute * cd_a = gdp->addFloatTuple(GA_ATTRIB_POINT, "Cd", 3, \
         GA_Defaults(GA_STORE_REAL32, 3, 1.f, 1.f, 1.f));
     GA_RWHandleV3 cd_h(cd_a);
@@ -412,19 +392,16 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     //     const GA_AIFCopyData * copy_attrib = cd_a->getAIFCopyData();
     //     copy_attrib->copy(*cd_a, gdp->getPointRange(), *cd_capture, gdp->getPointRange());
     // }
-
     GA_Attribute * distance_a = m_mesh_capture.getDistanceAttribute();
     if (!distance_a) {
         addWarning(SOP_MESSAGE, "Can't find distance capture attribute. Won't apply radius nor falloff.");
     }
-
     GA_ROHandleF distance_h(distance_a);
     const float radius_sqrt = radius*radius;
     GA_FOR_ALL_PTOFF(gdp, ptoff) {
         float distance_sqrt = 0.f;
         if (distance_h.isValid())
             distance_sqrt = distance_h.get(ptoff);
-
         if (distance_sqrt > radius_sqrt) {
             continue;
         }
@@ -440,10 +417,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             u.normalize(); v.normalize(); n.normalize();
             project_to_tangents(u, v, n, displace);
         }
-
         float falloff = SYSmin(distance_sqrt/radius_sqrt, 1.f);
         falloff = SYSpow(1.f - falloff, falloffrate);
-
         if (getPicked()) {
             float hue = SYSfit(falloff, 0.f, 1.f, 200.f, 360.f);
             affected_clr.setHSV(hue, 1.f, 1.f);
@@ -453,20 +428,16 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         if (cd_h.isValid()) {
             cd_h.set(ptoff, affected_clr.rgb());
         }
-
         displace *= falloff;
         gdp->setPos3(ptoff, pos + displace);
     }
     #else
     ////
     #endif
-
     // Any inputs above 2 is considered as morph targets...
-    if (morph_space && (nConnectedInputs() > 3) && m_direct_blends.isInitialized() )
-    {
+    if (morph_space && (nConnectedInputs() > 3) && m_direct_blends.isInitialized() ) {
         const GA_Attribute * rest = gdp->findFloatTuple(GA_ATTRIB_POINT, "rest", 3);
         GA_ROHandleV3 rest_h(rest);
-
         bool weights_done = false;
         if(!m_direct_blends.isComputed()) {
             weights_done = m_direct_blends.computeWeights(rest);
@@ -491,12 +462,9 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             }
         }
     }
-
     // If we've modified P, and we're managing our own data IDs,
     // we must bump the data ID for P.
-
     gdp->destroyAttribute(GA_ATTRIB_POINT, "distance");
-
     if (!myGroup || !myGroup->isEmpty())
         gdp->getP()->bumpDataId();
 
