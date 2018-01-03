@@ -449,10 +449,13 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         if (!weights_done) {
             addWarning(SOP_MESSAGE, "Can't compute weights for morphspace deformation. Ingoring it.");
         } else {
+            //ugly
+            UT_Vector2 * clamp = nullptr;
+            if (doclampweight) clamp = &weightrange;
             GA_FOR_ALL_PTOFF(gdp, ptoff) {
                 const GA_Index ptidx = gdp->pointIndex(ptoff);
                 UT_Vector3 displace(0,0,0);
-                m_direct_blends.displaceVector(ptidx, displace);
+                m_direct_blends.displaceVector(ptidx, displace, clamp);
                 const UT_Vector3 rest = rest_h.get(ptoff);
                 const UT_Vector3 pos  = gdp->getPos3(ptoff);
                 if (dofalloff) {

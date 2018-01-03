@@ -57,7 +57,7 @@ bool DirectBSEdit::computeWeights(const GA_Attribute * rest_attrib) {
     return myComputed;
 }
 
-void DirectBSEdit::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp) 
+void DirectBSEdit::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp, const UT_Vector2 * clamp) 
 {
     // TODO: add clamping
     const Eigen::VectorXd & weights = *(myWeights.get());
@@ -66,8 +66,9 @@ void DirectBSEdit::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp)
         const float xd = myShapesMatrix(3*ptidx + 0, col);
         const float yd = myShapesMatrix(3*ptidx + 1, col);
         const float zd = myShapesMatrix(3*ptidx + 2, col);
-        const float w  = weights(col); //!!!???
-        disp += UT_Vector3(xd, yd, zd) * w * 3;
+        const float w  = weights(col) * 3;
+        const float cw = (!clamp) ? w : SYSclamp(w, clamp->x(), clamp->y()); // ugly
+        disp += UT_Vector3(xd, yd, zd) * cw;
     }
     
 }
