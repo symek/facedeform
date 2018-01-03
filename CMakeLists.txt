@@ -27,8 +27,6 @@ else()
 endif()
 include_directories(${EIGEN_INCLUDE_DIR})
 
-set( CMAKE_BUILD_TYPE Debug)
-
 # Add a library with two source files.
 set( library_name SOP_FaceDeform )
 
