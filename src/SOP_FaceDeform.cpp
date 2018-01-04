@@ -266,8 +266,19 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     if (error() >= UT_ERROR_ABORT)
         return error();
 
-    DummyDeformer deformer;
-    DEBUG_PRINT("DummyDeformer: %i\n", (*deformer.interpolant()).data);
+    // DummyDeformer deformer;
+    RadialDeformer rbf;
+    rbf.init(gdp, rest_control_rig, deform_control_rig);
+    // DEBUG_PRINT("DummyDeformer: %i\n", (*deformer.interpolant()).data);
+    const bool valid = (*rbf.interpolant()).is_valid();
+    DEBUG_PRINT("RBF: %i", valid);
+    if (!valid) {
+           DEBUG_PRINT("RBF: can't init!", 0);   
+    } else {
+        if(!rbf.build(radius)) {
+              DEBUG_PRINT("RBF: can't build!", 0); 
+        }
+    }
 
     const int rest_npoints = rest_control_rig->getNumPoints();
     alglib::real_2d_array rbf_data_model;
