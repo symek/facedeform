@@ -1,10 +1,3 @@
-#include <memory>
-#include <unordered_map>
-// #include <GU/GU_Detail.h>
-// #include <GQ/GQ_Detail.h>
-// #include <GEO/GEO_PointTree.h>
-#include "deform.hpp"
-
 
 namespace facedeform
 {
@@ -27,6 +20,5 @@ bool CageDeformer<Interpol_Type, Geometry_Type>::build(const float & radius) {
     m_built = true;
     return m_built;  
 }
-
 
 } // end of namespace facedeform

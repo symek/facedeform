@@ -36,8 +36,8 @@ add_library( ${library_name} SHARED
     src/dbse.hpp
     src/capture.cpp
     src/capture.hpp
-    src/deform.cpp
     src/deform.hpp
+    src/deform.inl
     src/SOP_FaceDeform.cpp
     src/SOP_FaceDeform.hpp
 )

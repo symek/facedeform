@@ -1,6 +1,8 @@
 #pragma once
+#include <memory>
+#include <unordered_map>
 #include <SOP/SOP_Node.h>
-#include <GU/GU_Detail.h>
+#include "alglib_rbf.h"
 
 namespace facedeform {
 
@@ -14,12 +16,11 @@ template<class Geometry_Type>
 class DeformerBase
 {   
 public:
-    // Why those function can't be virtual? Linker error I get.
-    // virtual bool init(const G *, const G *, 
-    // const G *)                            = 0;
+    virtual bool init(const Geometry_Type *, const Geometry_Type *, 
+        const Geometry_Type *)               = 0;
     virtual bool is_init()  const            = 0;
     // See above
-    // virtual bool build(const float & radius) = 0;
+    virtual bool build(const float & radius) = 0;
     virtual bool is_built() const            = 0;
     virtual void * interpolant() const       = 0;
 };
@@ -52,3 +53,5 @@ private:
 typedef CageDeformer<DummyInterpolator, GU_Detail> DummyDeformer;
 
 } // end of facedeform namespace
+
+#include "deform.inl"
