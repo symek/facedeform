@@ -22,6 +22,7 @@
 #include <Eigen/StdVector>
 #include "dbse.hpp"
 #include "capture.hpp"
+#include "deform.hpp"
 #include "SOP_FaceDeform.hpp"
 
 #include "stdafx.h"
@@ -264,6 +265,9 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
     if (error() >= UT_ERROR_ABORT)
         return error();
+
+    DummyDeformer deformer;
+    std::cout << "DummyDeformer: " << (*deformer.interpolant()).data << '\n';
 
     const int rest_npoints = rest_control_rig->getNumPoints();
     alglib::real_2d_array rbf_data_model;
