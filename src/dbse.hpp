@@ -17,6 +17,7 @@ public:
         bool isInitialized() { return myInitialized && myShapesMatrix.rows(); }
         bool computeWeights(const GA_Attribute * rest_attrib);
         bool isComputed() { return myComputed && myQrMatrix && myWeights; }
+        // template< float (*filter)(float, float, float)>
         void displaceVector(const GA_Index & ptidx, UT_Vector3 & disp, const UT_Vector2 * clamp = 0);
         bool getWeights(UT_FprealArray & weights_array);
 private:

@@ -56,7 +56,7 @@ bool DirectBSEdit::computeWeights(const GA_Attribute * rest_attrib) {
     myComputed = true;
     return myComputed;
 }
-
+// template< float (*filter)(float, float, float)>
 void DirectBSEdit::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp, const UT_Vector2 * clamp) 
 {
     // TODO: add clamping
@@ -67,6 +67,7 @@ void DirectBSEdit::displaceVector(const GA_Index & ptidx, UT_Vector3 & disp, con
         const float yd = myShapesMatrix(3*ptidx + 1, col);
         const float zd = myShapesMatrix(3*ptidx + 2, col);
         const float w  = weights(col) * 3; // TODO Remove magic number. 
+        // const float cw = (!clamp) ? w : filter(w, clamp->x(), clamp->y());
         const float cw = (!clamp) ? w : SYSclamp(w, clamp->x(), clamp->y()); // ugly
         disp += UT_Vector3(xd, yd, zd) * cw;
     }

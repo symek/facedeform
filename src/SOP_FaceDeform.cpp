@@ -460,6 +460,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             GA_FOR_ALL_PTOFF(gdp, ptoff) {
                 const GA_Index ptidx = gdp->pointIndex(ptoff);
                 UT_Vector3 displace(0,0,0);
+                // m_direct_blends.displaceVector<SYSclamp>(ptidx, displace, clamp);
                 m_direct_blends.displaceVector(ptidx, displace, clamp);
                 const UT_Vector3 rest = rest_h.get(ptoff);
                 const UT_Vector3 pos  = gdp->getPos3(ptoff);
