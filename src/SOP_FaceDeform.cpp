@@ -267,7 +267,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         return error();
 
     DummyDeformer deformer;
-    std::cout << "DummyDeformer: " << (*deformer.interpolant()).data << '\n';
+    DEBUG_PRINT("DummyDeformer: %i\n", (*deformer.interpolant()).data);
 
     const int rest_npoints = rest_control_rig->getNumPoints();
     alglib::real_2d_array rbf_data_model;
