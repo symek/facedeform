@@ -268,38 +268,13 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
 
     // DummyDeformer deformer;
     RadialDeformer rbf;
-    rbf.init(gdp, rest_control_rig, deform_control_rig);
-    // DEBUG_PRINT("DummyDeformer: %i\n", (*deformer.interpolant()).data);
-    const bool valid = (*rbf.interpolant()).is_valid();
-    DEBUG_PRINT("RBF: %i", valid);
-    if (!valid) {
-           DEBUG_PRINT("RBF: can't init!", 0);   
-    } else {
-        if(!rbf.build(radius)) {
-              DEBUG_PRINT("RBF: can't build!", 0); 
-        }
+    if (!rbf.init(gdp, rest_control_rig, deform_control_rig) || !rbf.build(radius)) {
+        addError(SOP_MESSAGE, "Can't build rbf model!");
+        return error();
     }
 
-    const int rest_npoints = rest_control_rig->getNumPoints();
-    alglib::real_2d_array rbf_data_model;
-    rbf_data_model.setlength(rest_npoints, 6);
-    // Construct model data:
-    GA_Offset ptoff;
-    {   
-        GA_FOR_ALL_PTOFF(rest_control_rig, ptoff)
-        {
-            const UT_Vector3 restP   = rest_control_rig->getPos3(ptoff);
-            const UT_Vector3 deformP = deform_control_rig->getPos3(ptoff);
-            const UT_Vector3 delta   = UT_Vector3(deformP - restP);
-            double data[6] = {restP.x(), restP.y(), restP.z(), delta.x(), 
-                delta.y(), delta.z()};
-            const GA_Index ptidx = rest_control_rig->pointIndex(ptoff); 
-            if (ptidx < rest_npoints) {
-                for (int i=0; i<6; ++i)
-                    rbf_data_model[ptidx][i] = data[i]; 
-            }
-        }
-    }
+    DEBUG_PRINT("RBF valid?: %i, %i\n", rbf.is_init(), rbf.is_built());
+  
     // Do we have tangents?
     GA_ROHandleV3  tangentu_h(gdp, GA_ATTRIB_POINT, "tangentu");
     GA_ROHandleV3  tangentv_h(gdp, GA_ATTRIB_POINT, "tangentv");
@@ -342,62 +317,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     } else if (morph_space) {
         addWarning(SOP_MESSAGE, "No blendshapes found. Ignoring morphspace deformation.");
     }
-    // Create model objects and ralated items:
-    std::string str_model;
-    alglib::rbfmodel model;
-    alglib::rbfreport report;
-    try {
-        alglib::rbfcreate(3, 3, model);
-        alglib::rbfsetpoints(model, rbf_data_model);
-    } catch (alglib::ap_error err) {
-        addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't build RBF model.");
-        return error();
-    }
-    // Select RBF model:
-    switch(model_index) {
-        case ALGLIB_MODEL_QNN:
-            alglib::rbfsetalgoqnn(model, qcoef, zcoef);
-            break;
-        case ALGLIB_MODEL_ML:
-            alglib::rbfsetalgomultilayer(model, radius, layers, lambda);
-            break;
-    }
-    // Select RBF term:
-    switch(term_index) {
-        case ALGLIB_TERM_LINEAR:
-            alglib::rbfsetlinterm(model);
-            break;
-        case ALGLIB_TERM_CONST:
-            alglib::rbfsetconstterm(model);
-            break;
-        case ALGLIB_TERM_ZERO:
-            alglib::rbfsetzeroterm(model);
-            break;
-    }
-    // Finally build model:
-    alglib::rbfbuildmodel(model, report);
-    // Early quit if model wasn't built properly (singular matrix etc):
-    if (static_cast<int>(report.terminationtype) != 1) {
-        addError(SOP_ERR_NO_DEFORM_EFFECT, "Can't solve the problem.");
-        return error();
-    }
-    // Debug:
-    char info_buffer[200];
-    sprintf(info_buffer, "Termination type: %d, Iterations: %d", \
-        static_cast<int>(report.terminationtype),static_cast<int>(report.iterationscount));
-    addMessage(SOP_MESSAGE, &info_buffer[0]);
-    // We won't use this model directly (unless sigle threaded path was chosen in compile time)
-    // Instead we serialize it as send std::string to threads to be recreated there for 
-    // further calculation.
-    // alglib::rbfserialize(model, str_model);
-    // Here we determine which groups we have to work on.  We only
-    // handle point groups.
-    if (cookInputGroups(context) >= UT_ERROR_ABORT)
-        return error();
-    #if 1 
-    // Execute storage:
-    alglib::real_1d_array coord("[0,0,0]");
-    alglib::real_1d_array result("[0,0,0]");
+    
     GA_Attribute * cd_a = gdp->addFloatTuple(GA_ATTRIB_POINT, "Cd", 3, \
         GA_Defaults(GA_STORE_REAL32, 3, 1.f, 1.f, 1.f));
     GA_RWHandleV3 cd_h(cd_a);
@@ -416,6 +336,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
     GA_RWHandleF fd_falloff_h(gdp->addFloatTuple(GA_ATTRIB_POINT, "fd_falloff", 1));
     const float radius_sqrt = radius*radius;
     const UT_Vector3 white(1.f, 1.f, 1.f);
+    GA_Offset ptoff;
     GA_FOR_ALL_PTOFF(gdp, ptoff) {
         float distance_sqrt = 0.f;
         if (distance_h.isValid())
@@ -424,10 +345,8 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
             continue;
         }
         const UT_Vector3 pos = gdp->getPos3(ptoff);
-        const double dp[3] = {pos.x(), pos.y(), pos.z()};
-        coord.setcontent(3, dp);
-        alglib::rbfcalc(model, coord, result);
-        UT_Vector3 displace(result[0], result[1], result[2]);
+        UT_Vector3 displace(0.f,0.f,0.f);
+        rbf.deform_point(pos, displace);
         if (do_tangent_disp) {
             UT_Vector3 u = tangentu_h.get(ptoff); 
             UT_Vector3 v = tangentv_h.get(ptoff);
@@ -452,9 +371,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         displace *= falloff;
         gdp->setPos3(ptoff, pos + displace);
     }
-    #else
-    ////
-    #endif
+
     // Any inputs above 2 is considered as morph targets...
     if (morph_space && (nConnectedInputs() > 3) && m_direct_blends.isInitialized() ) {
         const GA_Attribute * rest = gdp->findFloatTuple(GA_ATTRIB_POINT, "rest", 3);

@@ -23,6 +23,8 @@ public:
     virtual bool build(const float & radius) = 0;
     virtual bool is_built() const            = 0;
     virtual void * interpolant() const       = 0;
+    virtual void deform_point(const UT_Vector3 & pos, 
+        UT_Vector3 & result)                 = 0;
 };
 
 struct DummyInterpolator {
@@ -53,6 +55,7 @@ public:
     bool build(const float & radius);
     bool is_built() const { return m_built; }
     Interpol_Type *  interpolant() const { return m_interpolator.get(); }
+    void deform_point(const UT_Vector3 & pos, UT_Vector3 & result);
 private:
     bool            m_init  = false;
     bool            m_built = false;

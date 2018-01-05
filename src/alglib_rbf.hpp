@@ -37,19 +37,16 @@ public:
         const Geometry_Type *)             = 0;
     virtual bool build(const Parm_Type &)  = 0;
     virtual bool is_valid() const          = 0;
+    virtual bool interpolate(const double *, UT_Vector3 &) = 0;
 };
 
 template<class Geometry_Type, class Parm_Type>
 class ALGLIB_RadialBasisFunc_Impl : 
     public InterpolatorBase<Geometry_Type, Parm_Type>
 {
-    // typedef std::unique_ptr<alglib::real_2d_array>  RbfModelDataPtr;
-    // typedef std::unique_ptr<alglib::rbfmodel>       RbfModelPtr;
-    // typedef std::unique_ptr<alglib::rbfreport>      RbfReport;
     typedef alglib::real_1d_array                   RealArray;
     typedef alglib::real_2d_array                   Real2DArray;
 public:
-    // typedef Parm_Type InputParametersT;
     using InputParametersT = Parm_Type;
     bool init(const Geometry_Type * rest, const Geometry_Type * deform) {
         assert(rest != nullptr);
@@ -104,7 +101,17 @@ public:
         }
         return m_built;
     }
+    bool is_init()  const { return m_init; }
+    bool is_built() const { return m_built; }
     bool is_valid() const { return m_init && m_built; }
+    bool interpolate( const double * pos, UT_Vector3 & output) {
+    	coord.setcontent(3, pos);
+        alglib::rbfcalc(m_model, coord, result);
+        output.x() = result[0];
+        output.y() = result[1];
+        output.z() = result[2];
+        return true;
+    }
 private:
     const Geometry_Type * m_rest_geo   = nullptr;
     const Geometry_Type * m_deform_geo = nullptr;
