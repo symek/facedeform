@@ -267,13 +267,13 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         return error();
 
     // DummyDeformer deformer;
-    RadialDeformer rbf;
-    if (!rbf.init(gdp, rest_control_rig, deform_control_rig) || !rbf.build(radius)) {
-        addError(SOP_MESSAGE, "Can't build rbf model!");
+    RadialDeformer deformer;
+    if (!deformer.init(gdp, rest_control_rig, deform_control_rig) || !deformer.build(radius)) {
+        addError(SOP_MESSAGE, "Can't make specified deformer!");
         return error();
     }
 
-    DEBUG_PRINT("RBF valid?: %i, %i\n", rbf.is_init(), rbf.is_built());
+    DEBUG_PRINT("RBF valid?: %i, %i\n", deformer.is_init(), deformer.is_built());
   
     // Do we have tangents?
     GA_ROHandleV3  tangentu_h(gdp, GA_ATTRIB_POINT, "tangentu");
@@ -346,7 +346,7 @@ SOP_FaceDeform::cookMySop(OP_Context &context)
         }
         const UT_Vector3 pos = gdp->getPos3(ptoff);
         UT_Vector3 displace(0.f,0.f,0.f);
-        rbf.deform_point(pos, displace);
+        deformer.deform_point(pos, displace);
         if (do_tangent_disp) {
             UT_Vector3 u = tangentu_h.get(ptoff); 
             UT_Vector3 v = tangentv_h.get(ptoff);

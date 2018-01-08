@@ -60,6 +60,8 @@ private:
     bool            m_init  = false;
     bool            m_built = false;
     InterpolatorPtr m_interpolator = nullptr;
+    double       m_in_buffer[3]{0,0,0};
+    double       m_out_buffer[3]{0,0,0};
 };
 
 

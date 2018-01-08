@@ -1,5 +1,6 @@
 #pragma once
 #include "interpolation.h"
+#include <GA/GA_Handle.h>
 
 namespace facedeform {
 
@@ -28,55 +29,76 @@ struct ALGLIB_Parms {
         float       radius = 1;
         float       layers = 4;
         float       lambda =.1;
+        
+        int         in_dim = 3;
+        int        out_dim = 3;
+        int     model_size = 0; 
 };
 
-template<class Geometry_Type, class Parm_Type>
+template<class Parm_Type>
 class InterpolatorBase {
 public:
-    virtual bool init(const Geometry_Type *, 
-        const Geometry_Type *)             = 0;
-    virtual bool build(const Parm_Type &)  = 0;
-    virtual bool is_valid() const          = 0;
-    virtual bool interpolate(const double *, UT_Vector3 &) = 0;
+    virtual bool init(const Parm_Type & )     = 0;
+    virtual bool build(const GA_Attribute *a, 
+                       const GA_Attribute *b) = 0;
+    virtual bool is_valid() const             = 0;
+    virtual void interpolate(const double *, double *) = 0;
 };
 
-template<class Geometry_Type, class Parm_Type>
-class ALGLIB_RadialBasisFunc_Impl : 
-    public InterpolatorBase<Geometry_Type, Parm_Type>
+
+
+template<class DataIn_Type, 
+         class DataOut_Type, 
+         class ModelData_Type 
+         >
+class DistanceGEO_Model
 {
-    typedef alglib::real_1d_array                   RealArray;
-    typedef alglib::real_2d_array                   Real2DArray;
+public:
+    DistanceGEO_Model(const size_t & in_dim, const size_t & out_dim, const size_t & model_size) {
+        // m_data = std::make_unique(in_dim+out_dim);
+        m_in_dim = in_dim;
+        m_out_dim = out_dim;
+        m_model_size = model_size;
+    }
+    void operator()(const GA_Attribute * a, const GA_Attribute * b, ModelData_Type & output) {
+        const GA_ROHandleT<DataIn_Type> h_a(a);
+        const GA_ROHandleT<DataIn_Type> h_b(b);
+        const GA_IndexMap & m_a = a->getIndexMap();
+        const GA_IndexMap & m_b = b->getIndexMap();
+        const GA_Index      end = m_a.indexSize();
+        assert(end <= m_model_size);
+        for (GA_Index idx(0); idx != end; ++idx) {
+            const GA_Offset ptoffa = m_a.offsetFromIndex(idx);
+            const GA_Offset ptoffb = m_b.offsetFromIndex(idx);
+            const DataIn_Type va   = h_a.get(ptoffa);
+            const DataIn_Type vb   = h_b.get(ptoffb);
+            const DataIn_Type        delta(vb - va);
+            for(size_t i=0; i<m_in_dim+m_out_dim; ++i) {
+                output[idx][i]          = static_cast<double>(va(i));
+                output[idx][m_in_dim+i] = static_cast<double>(vb(i));
+            }    
+        }
+    }
+private:
+    size_t m_in_dim     = 0;
+    size_t m_out_dim    = 0;
+    size_t m_model_size = 0;
+};
+
+
+template<class ModelBuilder_Type, 
+         class Geometry_Type, 
+         class Parm_Type
+         >
+class ALGLIB_RadialBasisFunc_Impl : 
+    public InterpolatorBase<Parm_Type>
+{
+    typedef alglib::real_1d_array RealArray;
+    typedef alglib::real_2d_array Real2DArray;
 public:
     using InputParametersT = Parm_Type;
-    bool init(const Geometry_Type * rest, const Geometry_Type * deform) {
-        assert(rest != nullptr);
-        assert(deform != nullptr);
-        m_rest_geo   = rest;
-        m_deform_geo = deform;
-        m_data_model.setlength(m_rest_geo->getNumPoints(), 6);
-        GA_Offset ptoff; 
-        GA_FOR_ALL_PTOFF(rest, ptoff) {
-            const UT_Vector3 restP   = rest->getPos3(ptoff);
-            const UT_Vector3 deformP = deform->getPos3(ptoff);
-            const GA_Index ptidx     = rest->pointIndex(ptoff); 
-            const UT_Vector3 delta(deformP - restP);
-            double data[6] = {restP.x(), restP.y(), restP.z(),
-                delta.x(), delta.y(), delta.z()};
-            if (ptidx < m_rest_geo->getNumPoints()) {
-                for (int i=0; i<6; ++i)
-                    m_data_model[ptidx][i] = data[i]; 
-            }
-        }
-        alglib::rbfcreate(3, 3, m_model);
-        alglib::rbfsetpoints(m_model, m_data_model);
-        m_init  = true;
-        m_built = false;
-        return m_init;
-    }
-
-    bool build(const Parm_Type & parms) {
-        if (!m_init)
-            return false;
+    bool init(const Parm_Type & parms) {
+        m_parms = parms;
         // Select RBF model:
         switch(parms.model) {
             case ALGLIB_MODEL_QNN: alglib::rbfsetalgoqnn(m_model,  parms.qcoef, parms.zcoef);
@@ -94,7 +116,24 @@ public:
             case ALGLIB_TERM_ZERO: alglib::rbfsetzeroterm(m_model);
                 break;
         }
-        // Finally build model:
+        // Set dimentionality of a problem:
+        coord.setlength(parms.in_dim);
+        result.setlength(parms.out_dim);
+        m_data_model.setlength(parms.model_size, parms.in_dim+parms.out_dim);
+        m_init  = true;
+        m_built = false;
+        return m_init;
+    }
+
+    bool build(const GA_Attribute *a, const GA_Attribute *b) {
+        if (!m_init)
+            return false;
+        assert(a != nullptr); assert(b != nullptr);
+        alglib::rbfcreate(3, 3, m_model);
+        ModelBuilder_Type model_builer(m_parms.in_dim, m_parms.out_dim, 
+            m_parms.model_size);
+        model_builer(a, b, m_data_model);
+        alglib::rbfsetpoints(m_model, m_data_model);
         alglib::rbfbuildmodel(m_model,  m_report);
         if (static_cast<int>(m_report.terminationtype) == 1) {
             m_built = true;
@@ -104,15 +143,15 @@ public:
     bool is_init()  const { return m_init; }
     bool is_built() const { return m_built; }
     bool is_valid() const { return m_init && m_built; }
-    bool interpolate( const double * pos, UT_Vector3 & output) {
+    void interpolate( const double * pos, double * output) {
     	coord.setcontent(3, pos);
         alglib::rbfcalc(m_model, coord, result);
-        output.x() = result[0];
-        output.y() = result[1];
-        output.z() = result[2];
-        return true;
+        output[0] = result[0];
+        output[1] = result[1];
+        output[2] = result[2];
     }
 private:
+    Parm_Type m_parms;
     const Geometry_Type * m_rest_geo   = nullptr;
     const Geometry_Type * m_deform_geo = nullptr;
     bool m_init  = false;
@@ -121,10 +160,10 @@ private:
     alglib::rbfmodel   m_model;
     alglib::rbfreport  m_report;
     Real2DArray        m_data_model; 
-    RealArray coord  = RealArray("[0,0,0]");
-    RealArray result = RealArray("[0,0,0]");
+    RealArray          coord;
+    RealArray          result;
 };
 
-
-typedef ALGLIB_RadialBasisFunc_Impl<GU_Detail, ALGLIB_Parms> ALGLIB_RadialBasisFuncT;
+typedef DistanceGEO_Model<UT_Vector3, UT_Vector3, alglib::real_2d_array> DistanceGEO_ModelT;
+typedef ALGLIB_RadialBasisFunc_Impl<DistanceGEO_ModelT, GA_Attribute, ALGLIB_Parms> ALGLIB_RadialBasisFuncT;
 } // end of facedeform namespace
